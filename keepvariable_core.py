@@ -36,3 +36,7 @@ class Var:
         except NameError:
             kept_variables[varname]=var
         return(var)
+
+def save_variables(variables):
+    with open("vars.kpv","w+") as file:
+        file.write(str(variables))
