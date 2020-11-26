@@ -37,14 +37,14 @@ class Var:
             kept_variables[varname]=var
         return(var)
 
-def save_variables(variables):
-    with open("vars.kpv","w+") as file:
+def save_variables(variables,filename="vars.kpv"):
+    with open(filename,"w+") as file:
         file.write(str(variables))
         
-def load_variable():    
+def load_variable(filename="vars.kpv"):    
     definition=get_definition(2)
     varname,keyword,inputs=analyze_definition(definition)    
-    with open("vars.kpv","r") as file:
+    with open(filename,"r") as file:
         rows=file.readlines()        
     variable_dict=ast.literal_eval(rows[0])
     this_variable=variable_dict[varname]
