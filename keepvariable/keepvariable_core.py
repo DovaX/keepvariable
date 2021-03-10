@@ -38,16 +38,17 @@ class Var:
         return(var)
 
 def save_variables(variables,filename="vars.kpv"):
-    with open(filename,"w+") as file:
-        try:
-            file.write(str(variables))
-        except UnicodeEncodeError:
-            pass
+    with open(filename,"w+", encoding="utf8",errors='ignore') as file: #errors ignore dirty way - might be improved
+        #try:
+        file.write(str(variables)) #.encode("utf-8")
+        #except UnicodeEncodeError:
+            #print("")
+            #pass
         
 def load_variable(filename="vars.kpv"):    
     definition=get_definition(2)
     varname,keyword,inputs=analyze_definition(definition)    
-    with open(filename,"r") as file:
+    with open(filename,"r", encoding="utf8",errors='ignore') as file:  #errors ignore dirty way - might be improved
         rows=file.readlines()        
     variable_dict=ast.literal_eval(rows[0])
     this_variable=variable_dict[varname]
