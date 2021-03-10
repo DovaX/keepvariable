@@ -39,7 +39,10 @@ class Var:
 
 def save_variables(variables,filename="vars.kpv"):
     with open(filename,"w+") as file:
-        file.write(str(variables))
+        try:
+            file.write(str(variables))
+        except UnicodeEncodeError:
+            pass
         
 def load_variable(filename="vars.kpv"):    
     definition=get_definition(2)
