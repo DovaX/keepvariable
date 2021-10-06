@@ -17,8 +17,8 @@ def analyze_definition(string):
         else:
             inputs.append(i)
     try:
-        keyword=string.split("=")[1].split("(")[0]
-        varname=string.split("=")[0]
+        keyword=string.split("=")[1].split("(")[0].strip()
+        varname=string.split("=")[0].strip()
     except:
         keyword=""
         varname=""
