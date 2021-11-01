@@ -40,6 +40,27 @@ class Var:
         except NameError:
             kept_variables[varname]=var
         return(var)
+    
+    
+class VarSafe:
+    def __new__(cls,var,varname,inputs):
+        """
+        var=variable
+        varname=string of var.__name__
+        inputs=parameters in bracket
+        
+        Example - difference to kv.Var:
+        db_details_list=kv.Var(db_details_list)
+        db_details_list=kv.VarSafe(db_details_list,"db_details_list",str(db_details_list)) #safe for packaging
+        """
+        # definition=get_definition(2,var)
+        # varname,keyword,inputs=analyze_definition(definition)
+        joined_inputs=",".join(inputs)
+        try:
+            kept_variables[varname]=eval(joined_inputs) #not use ast.literal_eval -> wrong handling of strings for this use case
+        except NameError:
+            kept_variables[varname]=var
+        return(var)
 
 def save_variables(variables,filename="vars.kpv"):
     with open(filename,"w+", encoding="utf8",errors='ignore') as file: #errors ignore dirty way - might be improved
@@ -48,15 +69,23 @@ def save_variables(variables,filename="vars.kpv"):
         #except UnicodeEncodeError:
             #print("")
             #pass
+   
         
-def load_variable(filename="vars.kpv"):    
-    definition=get_definition(2)
-    varname,keyword,inputs=analyze_definition(definition)    
+
+def load_variable_safe(filename="vars.kpv",varname="varname"):
     with open(filename,"r", encoding="utf8",errors='ignore') as file:  #errors ignore dirty way - might be improved
         rows=file.readlines()        
     variable_dict=ast.literal_eval(rows[0])
     this_variable=variable_dict[varname]
     return(this_variable)
+
+    
+def load_variable(filename="vars.kpv"):    
+    definition=get_definition(2)
+    varname,keyword,inputs=analyze_definition(definition) 
+    this_variable=load_variable_safe(filename=filename,varname=varname)
+    return(this_variable)
+
 
 
 class RefList:
