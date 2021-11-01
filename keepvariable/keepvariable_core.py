@@ -5,9 +5,10 @@ def get_definition(jump_frames,*args,**kwargs):
     """Returns the definition of a function or a class from inside"""
     frame = inspect.currentframe()
     frame = inspect.getouterframes(frame)[jump_frames]
-    if frame is not None:
+    try:
         string = inspect.getframeinfo(frame[0]).code_context[0].strip()
-    else:
+    except TypeError as e:
+        print("Warning: Keepvariable was not correctly executed",e)
         string=""
     return(string)
     
