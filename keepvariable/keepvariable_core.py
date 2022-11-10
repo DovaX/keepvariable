@@ -50,8 +50,8 @@ class VarSafe:
         inputs=parameters in bracket
         
         Example - difference to kv.Var:
-        db_details_list=kv.Var(db_details_list)
-        db_details_list=kv.VarSafe(db_details_list,"db_details_list",str(db_details_list)) #safe for packaging
+        db_details_list=kv.Var(db_details_list)    
+        db_details_list=kv.VarSafe(db_details_list,"db_details_list","db_details_list")
         """
         # definition=get_definition(2,var)
         # varname,keyword,inputs=analyze_definition(definition)
@@ -86,6 +86,12 @@ def load_variable(filename="vars.kpv"):
     this_variable=load_variable_safe(filename=filename,varname=varname)
     return(this_variable)
 
+
+def load_variables(filename="vars.kpv"):    
+    with open(filename,"r", encoding="utf8",errors='ignore') as file:  #errors ignore dirty way - might be improved
+        rows=file.readlines()        
+    variable_dict=ast.literal_eval(rows[0])
+    return(variable_dict)
 
 
 class RefList:
