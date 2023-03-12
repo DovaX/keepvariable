@@ -1,5 +1,7 @@
 import inspect
 import ast
+import redis
+import json
 
 def get_definition(jump_frames,*args,**kwargs):
     """Returns the definition of a function or a class from inside"""
@@ -124,3 +126,38 @@ class RefList:
     def __str__(self):
         return(str(self.elements))
    
+    
+   
+    
+class KeepVariableRedisServer:
+    def __init__(self,host="localhost",port=6379,password=None):
+        self.host=host
+        self.port=port
+        self.password=password
+        
+        self.redis = redis.Redis(host=self.host, port=self.port, db=0,password=self.password,decode_responses=True,charset="utf-8")
+    
+    @property
+    def kept_variables(self):
+        return(self._kept_variables)
+    
+    @kept_variables.setter
+    def kept_variables(self,kept_variables):
+        return(self._kept_variables)
+    
+    def set(self,key,value):
+        if isinstance(value,list) or isinstance(value,bool) or isinstance(value,dict):
+            value=json.dumps(value)
+        result=self.redis.set(key,value)
+        return(result)
+        
+    def get(self,key):
+        result=self.redis.get(key)
+        try:
+            result=json.loads(result)    
+            return(result)
+        except json.JSONDecodeError: #if type is str, it fails to decode
+            return(result)
+        
+        
+        
