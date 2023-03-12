@@ -2,6 +2,8 @@ import inspect
 import ast
 import redis
 import json
+import pandas as pd
+import numpy as np
 
 def get_definition(jump_frames,*args,**kwargs):
     """Returns the definition of a function or a class from inside"""
@@ -148,16 +150,32 @@ class KeepVariableRedisServer:
     def set(self,key,value):
         if isinstance(value,list) or isinstance(value,bool) or isinstance(value,dict):
             value=json.dumps(value)
+        elif isinstance(value,pd.DataFrame):
+            data=value.values.tolist()
+            columns=list(value.columns)
+            final_data={"columns":columns,"data":data,"object_type":"pd.DataFrame"}
+            print(final_data)
+            value=json.dumps(final_data)
+        elif isinstance(value,np.ndarray):
+            data=value.tolist()
+            final_data={"data":data,"object_type":"np.ndarray"}
+            value=json.dumps(final_data)
         result=self.redis.set(key,value)
         return(result)
         
     def get(self,key):
         result=self.redis.get(key)
         try:
-            result=json.loads(result)    
+            result=json.loads(result)
+            if "object_type" in result and isinstance(result,dict):
+                if result["object_type"]=="pd.DataFrame":
+                    df=pd.DataFrame(result["data"],columns=result["columns"])
+                    return(df)
+                elif result["object_type"]=="np.ndarray":
+                    array=pd.DataFrame(result["data"]).values #to ensure 64bit values in array
+                    return(array)
             return(result)
         except json.JSONDecodeError: #if type is str, it fails to decode
             return(result)
-        
         
         
