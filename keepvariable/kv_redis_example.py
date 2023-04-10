@@ -1,7 +1,9 @@
 import keepvariable_core as kv
 import pandas as pd
 
-kv_redis=kv.KeepVariableRedisServer(host="127.0.0.1",port=6379)
+kv_redis=kv.KeepVariableRedisServer(host="app.forloop.ai",port=6379,password="redisforloop2023#-")
+#kv_redis=kv.KeepVariableDummyRedisServer()
+
     
 
 kv_redis.set("test","abc123")
@@ -31,3 +33,7 @@ result=kv_redis.get("test_array")
 print(result)
 # #[[1 2 3 4]
 # # [4 5 6 7]]
+
+
+
+

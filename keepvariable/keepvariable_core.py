@@ -31,7 +31,7 @@ def analyze_definition(string):
         keyword=""
         varname=""
     return(varname,keyword,inputs)
-
+ 
 kept_variables={}
 
 class Var:
@@ -129,9 +129,52 @@ class RefList:
         return(str(self.elements))
    
     
-   
+class KeepVariableDummyRedisServer:
+    def __init__(self,host="localhost"):
+        self.host=host
+        self.storage={}
+        
+    def parse_saved_value(self,value):
+        if isinstance(value,list) or isinstance(value,bool) or isinstance(value,dict):
+            value=json.dumps(value)
+        elif isinstance(value,pd.DataFrame):
+            data=value.values.tolist()
+            columns=list(value.columns)
+            final_data={"columns":columns,"data":data,"object_type":"pd.DataFrame"}
+            print(final_data)
+            value=json.dumps(final_data)
+        elif isinstance(value,np.ndarray):
+            data=value.tolist()
+            final_data={"data":data,"object_type":"np.ndarray"}
+            value=json.dumps(final_data)
+        return(value)
     
-class KeepVariableRedisServer:
+    def decode_loaded_value(self,value):
+        try:
+            value=json.loads(value)
+            if "object_type" in value and isinstance(value,dict):
+                if value["object_type"]=="pd.DataFrame":
+                    df=pd.DataFrame(value["data"],columns=value["columns"])
+                    return(df)
+                elif value["object_type"]=="np.ndarray":
+                    array=pd.DataFrame(value["data"]).values #to ensure 64bit values in array
+                    return(array)
+            return(value)
+        except json.JSONDecodeError: #if type is str, it fails to decode
+            return(value)
+        
+        
+    def set(self,key,value):
+        value=self.parse_saved_value(value)
+        self.storage[key]=value
+        return({key:value})
+
+    def get(self,key):
+        value=self.storage.get(key)
+        decoded_value=self.decode_loaded_value(value)
+        return(decoded_value)
+    
+class KeepVariableRedisServer(KeepVariableDummyRedisServer):
     def __init__(self,host="localhost",port=6379,password=None):
         self.host=host
         self.port=port
@@ -148,34 +191,13 @@ class KeepVariableRedisServer:
         return(self._kept_variables)
     
     def set(self,key,value):
-        if isinstance(value,list) or isinstance(value,bool) or isinstance(value,dict):
-            value=json.dumps(value)
-        elif isinstance(value,pd.DataFrame):
-            data=value.values.tolist()
-            columns=list(value.columns)
-            final_data={"columns":columns,"data":data,"object_type":"pd.DataFrame"}
-            print(final_data)
-            value=json.dumps(final_data)
-        elif isinstance(value,np.ndarray):
-            data=value.tolist()
-            final_data={"data":data,"object_type":"np.ndarray"}
-            value=json.dumps(final_data)
+        value=self.parse_saved_value(value)
         result=self.redis.set(key,value)
         return(result)
         
     def get(self,key):
-        result=self.redis.get(key)
-        try:
-            result=json.loads(result)
-            if "object_type" in result and isinstance(result,dict):
-                if result["object_type"]=="pd.DataFrame":
-                    df=pd.DataFrame(result["data"],columns=result["columns"])
-                    return(df)
-                elif result["object_type"]=="np.ndarray":
-                    array=pd.DataFrame(result["data"]).values #to ensure 64bit values in array
-                    return(array)
-            return(result)
-        except json.JSONDecodeError: #if type is str, it fails to decode
-            return(result)
+        value=self.redis.get(key)
+        decoded_value=self.decode_loaded_value(value)
+        return(decoded_value)
         
         
