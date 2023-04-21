@@ -4,6 +4,7 @@ import redis
 import json
 import pandas as pd
 import numpy as np
+import datetime
 
 def get_definition(jump_frames,*args,**kwargs):
     """Returns the definition of a function or a class from inside"""
@@ -147,6 +148,9 @@ class KeepVariableDummyRedisServer:
             data=value.tolist()
             final_data={"data":data,"object_type":"np.ndarray"}
             value=json.dumps(final_data)
+        elif isinstance(value, datetime.datetime):
+            final_data = {"value": value.timestamp(), "object_type": "datetime.datetime"}
+            value = json.dumps(final_data)
         return(value)
     
     def decode_loaded_value(self,value):
@@ -159,6 +163,9 @@ class KeepVariableDummyRedisServer:
                 elif value["object_type"]=="np.ndarray":
                     array=pd.DataFrame(value["data"]).values #to ensure 64bit values in array
                     return(array)
+                elif value["object_type"] == "datetime.datetime":
+                    datetime_value = datetime.datetime.fromtimestamp(value["value"])
+                    return datetime_value
             return(value)
         except json.JSONDecodeError: #if type is str, it fails to decode
             return(value)

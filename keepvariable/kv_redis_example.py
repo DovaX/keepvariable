@@ -1,5 +1,6 @@
 import keepvariable_core as kv
 import pandas as pd
+import datetime
 
 kv_redis=kv.KeepVariableRedisServer(host="app.forloop.ai",port=6379,password="redisforloop2023#-")
 #kv_redis=kv.KeepVariableDummyRedisServer()
@@ -34,6 +35,15 @@ print(result)
 # #[[1 2 3 4]
 # # [4 5 6 7]]
 
+datetime_test = datetime.datetime(year=2023, month=4, day=15, hour=14, minute=35)
 
+print(f'Datetime original: {datetime_test}')
+
+name = "datetime_test"
+kv_redis.set(name, datetime_test)
+result = kv_redis.get(name)
+
+print(f'Datetime from redis: {result}')
+# 2023-04-14 14:35:00
 
 
