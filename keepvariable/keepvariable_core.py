@@ -149,7 +149,8 @@ class KeepVariableDummyRedisServer:
             final_data={"data":data,"object_type":"np.ndarray"}
             value=json.dumps(final_data)
         elif isinstance(value, datetime.datetime):
-            final_data = {"value": value.timestamp(), "object_type": "datetime.datetime"}
+            data=value.strftime("%Y-%m-%d %H:%M:%S")
+            final_data = {"data": data, "object_type": "datetime.datetime"}
             value = json.dumps(final_data)
         return(value)
     
@@ -164,7 +165,7 @@ class KeepVariableDummyRedisServer:
                     array=pd.DataFrame(value["data"]).values #to ensure 64bit values in array
                     return(array)
                 elif value["object_type"] == "datetime.datetime":
-                    datetime_value = datetime.datetime.fromtimestamp(value["value"])
+                    datetime_value = datetime.datetime.strptime(value["data"],"%Y-%m-%d %H:%M:%S")
                     return datetime_value
             return(value)
         except json.JSONDecodeError: #if type is str, it fails to decode
@@ -207,4 +208,4 @@ class KeepVariableRedisServer(KeepVariableDummyRedisServer):
         decoded_value=self.decode_loaded_value(value)
         return(decoded_value)
         
-        
+
