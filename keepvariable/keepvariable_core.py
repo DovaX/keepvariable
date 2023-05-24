@@ -225,8 +225,8 @@ class KeepVariableRedisServer(KeepVariableDummyRedisServer):
     def kept_variables(self,kept_variables):
         return(self._kept_variables)
     
-    def set(self,key,value):
-        value=self.parse_saved_value(value)
+    def set(self,key,value, additional_params: dict = {}):
+        value=self.parse_saved_value(value, additional_params)
         result=self.redis.set(key,value)
         return(result)
         
