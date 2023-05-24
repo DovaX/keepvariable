@@ -1,9 +1,10 @@
 import keepvariable_core as kv
 import pandas as pd
 import datetime
+import inspect
 
-kv_redis=kv.KeepVariableRedisServer(host="app.forloop.ai",port=6379,password="redisforloop2023#-")
-#kv_redis=kv.KeepVariableDummyRedisServer()
+# kv_redis=kv.KeepVariableRedisServer(host="app.forloop.ai",port=6379,password="redisforloop2023#-")
+kv_redis=kv.KeepVariableDummyRedisServer()
 
     
 
@@ -45,5 +46,28 @@ result = kv_redis.get(name)
 
 print(f'Datetime from redis: {result}')
 # 2023-04-14 14:35:00
+
+def test_func():
+    print('Hello world!')
+name = "test_func"
+codelines, _ = inspect.getsourcelines(test_func)
+code = "".join(codelines)
+kv_redis.set(name, test_func, {"code": code})
+result = kv_redis.get(name)
+print(f'Function from redis:\n {result}')
+# returns the code of the function
+
+class Dog:
+    def __init__(self, number_of_legs:int = 8):
+        self.number_of_legs = number_of_legs
+        
+name = "Dog"
+codelines, _ = inspect.getsourcelines(Dog)
+code = "".join(codelines)
+kv_redis.set(name, Dog, {"code": code})
+result = kv_redis.get(name)
+print(f'Class from redis:\n {result}')
+# returns the code of the class  
+
 
 

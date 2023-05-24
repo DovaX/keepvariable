@@ -135,7 +135,14 @@ class KeepVariableDummyRedisServer:
         self.host=host
         self.storage={}
         
-    def parse_saved_value(self,value):
+    def parse_saved_value(self, value, additional_params: dict = {}):
+        """Parses enterted value to json format. Certain special type values are serialized (DFs, datetimes, functions, classes).
+
+        Args:
+            value (Any): Entered value of any type (not all types can get serialized and stored however!)
+            additional_params (dict, optional): Additional parameters used for serialization, e.g. for a function variable it's 
+            code must be passed somehow --> additional_params = {'code': <function_code>}. Defaults to {}.
+        """        
         if isinstance(value,list) or isinstance(value,bool) or isinstance(value,dict):
             value=json.dumps(value)
         elif isinstance(value,pd.DataFrame):
@@ -152,9 +159,27 @@ class KeepVariableDummyRedisServer:
             data=value.strftime("%Y-%m-%d %H:%M:%S")
             final_data = {"data": data, "object_type": "datetime.datetime"}
             value = json.dumps(final_data)
+        elif inspect.isfunction(value):
+            code = additional_params.get("code")
+            value = {"code": code, "object_type": "function"}
+            value = json.dumps(code)
+        elif inspect.isclass(value):
+            code = additional_params.get("code")
+            value = {"code": code, "object_type": "class"}
+            value = json.dumps(code)
+            
         return(value)
     
     def decode_loaded_value(self,value):
+        """Decodes value stored in redis into it's initial value.
+        For functions and classes only their code is returned --> they need to be evaluated afterwards!!!
+
+        Args:
+            value (Any): Variable value from redis
+
+        Returns:
+            Any: Parsed variable value
+        """        
         try:
             value=json.loads(value)
             if "object_type" in value and isinstance(value,dict):
@@ -167,13 +192,15 @@ class KeepVariableDummyRedisServer:
                 elif value["object_type"] == "datetime.datetime":
                     datetime_value = datetime.datetime.strptime(value["data"],"%Y-%m-%d %H:%M:%S")
                     return datetime_value
+                elif value["object_type"] == "function" or value["object_type"] == "class":
+                    return value["code"]
             return(value)
         except json.JSONDecodeError: #if type is str, it fails to decode
             return(value)
         
         
-    def set(self,key,value):
-        value=self.parse_saved_value(value)
+    def set(self, key, value, additional_params: dict = {}):
+        value=self.parse_saved_value(value, additional_params)
         self.storage[key]=value
         return({key:value})
 
