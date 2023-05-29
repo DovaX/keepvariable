@@ -148,7 +148,7 @@ class KeepVariableDummyRedisServer:
         elif isinstance(value,pd.DataFrame):
             data=value.values.tolist()
             columns=list(value.columns)
-            final_data={"columns":columns,"data":data,"object_type":"pd.DataFrame"}
+            final_data={"columns":columns,"data":data,"object_type":"pd.DataFrame", "attrs": value.attrs}
             print(final_data)
             value=json.dumps(final_data)
         elif isinstance(value,np.ndarray):
@@ -185,6 +185,7 @@ class KeepVariableDummyRedisServer:
             if "object_type" in value and isinstance(value,dict):
                 if value["object_type"]=="pd.DataFrame":
                     df=pd.DataFrame(value["data"],columns=value["columns"])
+                    df.attrs = value["attrs"]
                     return(df)
                 elif value["object_type"]=="np.ndarray":
                     array=pd.DataFrame(value["data"]).values #to ensure 64bit values in array
