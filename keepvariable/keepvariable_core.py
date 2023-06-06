@@ -4,10 +4,15 @@ import inspect
 import json
 from collections.abc import Sequence
 from typing import Any, Optional, Union
+import re
 
 import numpy as np
 import pandas as pd
 import redis
+from redis.commands.search.field import NumericField, TagField
+from redis.commands.search.indexDefinition import IndexDefinition, IndexType
+from redis.commands.search.query import Query
+from redis.lock import Lock
 
 
 def get_definition(jump_frames, *args, **kwargs):
@@ -146,6 +151,9 @@ class RefList:
         return str(self.elements)
 
 
+JsonParams = Union[dict[str, Any], Sequence[tuple[str, str]]]
+
+
 class KeepVariableDummyRedisServer:
     def __init__(self, host="localhost"):
         self.host = host
@@ -234,7 +242,10 @@ class KeepVariableDummyRedisServer:
         except json.JSONDecodeError:  # if type is str, it fails to decode
             return value
 
-    def set(self, key, value, additional_params: dict = {}):
+    def set(self, key, value, additional_params: Optional[dict] = None):
+        if additional_params is None:
+            additional_params = {}
+
         value = self.parse_saved_value(value, additional_params)
         self.storage[key] = value
         return {key: value}
@@ -244,8 +255,85 @@ class KeepVariableDummyRedisServer:
         decoded_value = self.decode_loaded_value(value)
         return decoded_value
 
+    def lock(self, *args, **kwargs):
+        return DummyLock()
 
-JsonParams = Union[dict[str, Any], Sequence[tuple[str, str]]]
+    def json_mset(self, name: str, params: dict):
+        for json_xpath, value in params.items():
+            element, last_element, last_index = self._parse_path(name, json_xpath)
+            if last_index:
+                element[last_element][last_index] = value
+            else:
+                element[last_element] = value
+
+    def query_and_search(
+        self, index_name: str, query: str, sort_by_name: str
+    ) -> tuple[str, str]:
+        found_jobs = [
+            (obj["uid"], obj)
+            for obj in self.storage.values()
+            if obj["status"] == "QUEUED"
+        ]
+        sorted_jobs = sorted(found_jobs, key=lambda x: x[sort_by_name])
+        return sorted_jobs.pop(0)
+
+    def arrlen(self, name: str, path: str) -> Optional[int]:
+        element, last_element, last_index = self._parse_path(name, path)
+        if last_index:
+            return len(element[last_element][last_index])
+        else:
+            return len(element[last_element])
+
+    def arrappend(self, name: str, path: str, *args) -> None:
+        element, last_element, last_index = self._parse_path(name, path)
+        if last_index:
+            element[last_element][last_index].append(args)
+        else:
+            element[last_element].append(args)
+
+    def _parse_path(self, name: str, path: str) -> tuple[dict, str, Optional[int]]:
+        # Parsing sequence from 'path' string
+        # name = "cache"
+        # path = "$.A.B[2].C.D[5]"
+        # elements = ["$", "A", "B[2]", "C", "D[5]"]
+        # element_list = ["cache", "A", "B", "C", "D"]
+        # index_list = [None, None, 2, None, 5]
+        # Then iterate over pairs of both lists and recurrently enter storage dict
+
+        elements = path.split(".")
+
+        pattern = r"\[(\d+)\]"  # Find any "[*]" group where * is one or more digits
+        element_list: list[str] = []
+        index_list: list[Optional[int]] = []
+        for element in elements:
+            if match := re.search(pattern, element):
+                group = match.group()
+                index_list.append(int(group[1:-1]))  # transform "[2]" -> 2
+                element_list.append(element.split("[")[0])  # transform "B[2]" -> "B"
+            else:
+                index_list.append(None)
+                element_list.append(element)
+
+        root = element_list.index("$")
+        element_list[root] = name
+
+        nested = self.storage
+        for element, index in zip(element_list[:-1], index_list[:-1]):
+            if index is not None:
+                nested = nested[element][index]
+            else:
+                nested = nested[element]
+
+        # nested is a reference to the object 1 level about the object pointed by 'path'
+        return nested, element_list[-1], index_list[-1]
+
+
+class DummyLock:
+    def acquire(self):
+        return True
+
+    def release(self):
+        pass
 
 
 class KeepVariableRedisServer(KeepVariableDummyRedisServer):
@@ -271,7 +359,10 @@ class KeepVariableRedisServer(KeepVariableDummyRedisServer):
     def kept_variables(self, kept_variables):
         return self._kept_variables
 
-    def set(self, key: str, value: str, additional_params: dict = None):
+    def lock(self, *args, **kwargs):
+        return self.redis.lock(*args, **kwargs)
+
+    def set(self, key: str, value: str, additional_params: Optional[dict] = None):
         if additional_params is None:
             additional_params = {}
 
@@ -322,3 +413,21 @@ class KeepVariableRedisServer(KeepVariableDummyRedisServer):
                     "params argument must be provided in a Sequence of tuples"
                 )
             pipe.execute()
+
+    def query_and_search(
+        self, index_name: str, query: str, sort_by_name: str
+    ) -> tuple[str, str]:
+        query_obj = Query(query).sort_by(sort_by_name)
+        job_docs: list = self.redis.ft(index_name).search(query_obj).docs
+        job_doc = job_docs.pop(0)
+        job_uid: str = job_doc.id.split(":")[1]  # E.g. 'job:41' -> '41'
+        job_json = job_doc.json
+
+        return (job_uid, job_json)
+
+    def arrlen(self, name: str, path: str) -> Optional[int]:
+        # Redis returns length of the list as a list of 1 element
+        return self.redis.json().arrlen(name, path).pop()
+
+    def arrappend(self, name: str, path: str, *arg: Any) -> None:
+        return self.redis.json().arrappend(name, path, *arg)
