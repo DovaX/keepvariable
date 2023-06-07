@@ -2,21 +2,20 @@ import ast
 import datetime
 import inspect
 import json
-from collections.abc import Sequence
-from typing import Any, Optional, Union
 import re
+from abc import ABC, abstractmethod
+from collections.abc import Sequence
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
 import redis
-from redis.commands.search.field import NumericField, TagField
-from redis.commands.search.indexDefinition import IndexDefinition, IndexType
 from redis.commands.search.query import Query
-from redis.lock import Lock
+from redis.lock import Lock as RedisLock
 
 
 def get_definition(jump_frames, *args, **kwargs):
-    """Returns the definition of a function or a class from inside."""
+    """Return the definition of a function or a class from inside."""
     frame = inspect.currentframe()
     frame = inspect.getouterframes(frame)[jump_frames]
     try:
@@ -124,7 +123,10 @@ def load_variables(filename="vars.kpv"):
 class RefList:
     """This object type serves for enabling grouping lists of objects (e.g. visible/draggable) with common attribute in one list which is always up to date."""
 
-    def __init__(self, elements=[], referenced_lists=None):
+    def __init__(self, elements=None, referenced_lists=None):
+        if elements is None:
+            elements = []
+
         self.elements = elements
         self.referenced_lists = referenced_lists
         self.embedded_in_lists = []
@@ -151,24 +153,22 @@ class RefList:
         return str(self.elements)
 
 
-JsonParams = Union[dict[str, Any], Sequence[tuple[str, str]]]
-
-
-class KeepVariableDummyRedisServer:
-    def __init__(self, host="localhost"):
-        self.host = host
-        self.storage = {}
-
-    def parse_saved_value(self, value, additional_params: dict = {}):
+class AbstractKeepVariableServer(ABC):
+    def parse_saved_value(self, value, additional_params: Optional[dict] = None):
         """
-        Parses enterted value to json format. Certain special type values are serialized (DFs, datetimes, functions, classes).
+        Parse enterted value to json format. Certain special type values are serialized (DFs, datetimes, functions, classes).
 
-        Args:
-        ----
-            value (Any): Entered value of any type (not all types can get serialized and stored however!)
-            additional_params (dict, optional): Additional parameters used for serialization, e.g. for a function variable it's
-            code must be passed somehow --> additional_params = {'code': <function_code>}. Defaults to {}.
+        :param value: Entered value of any type (not all types can get serialized and stored however!)
+        :type value: Any
+        :param additional_params: Additional parameters used for serialization, e.g. for a function variable it's
+        code must be passed somehow --> additional_params = {'code': <function_code>}. Defaults to {}.
+        :type additional_params: Optional[dict], optional
+        :return: Jsonified value
+        :rtype: Any
         """
+        if additional_params is None:
+            additional_params = {}
+
         if (
             isinstance(value, list)
             or isinstance(value, bool)
@@ -206,16 +206,13 @@ class KeepVariableDummyRedisServer:
 
     def decode_loaded_value(self, value):
         """
-        Decodes value stored in redis into it's initial value.
+        Decode value stored in redis into it's initial value.
         For functions and classes only their code is returned --> they need to be evaluated afterwards!!!.
 
-        Args:
-        ----
-            value (Any): Variable value from redis
-
-        Returns:
-        -------
-            Any: Parsed variable value
+        :param value: Variable value from redis
+        :type value: Any
+        :return: Parsed variable value
+        :rtype: Any
         """
         try:
             value = json.loads(value)
@@ -242,6 +239,76 @@ class KeepVariableDummyRedisServer:
         except json.JSONDecodeError:  # if type is str, it fails to decode
             return value
 
+    @abstractmethod
+    def lock(self, *args, **kwargs) -> RedisLock:
+        pass
+
+    @abstractmethod
+    def set(self, key: str, value, additional_params: Optional[dict] = None):
+        pass
+
+    @abstractmethod
+    def get(self, key: str):
+        pass
+
+    @abstractmethod
+    def json_mset(self, name: str, params: dict) -> None:
+        pass
+
+    @abstractmethod
+    def query(
+        self, query_params: dict, *args, field_to_sort_by: Optional[str] = None, asc=True,
+    ) -> list[str]:
+        pass
+
+    @abstractmethod
+    def arrlen(self, name: str, path: str) -> Optional[int]:
+        """
+        Return length of the specified array in JSON document.
+
+        :param name: key under which a JSON document is stored
+        :type name: str
+        :param path: Redis JSON path string e.g. "job.nodes[2].status"
+        :type path: str
+        :return: Size of the array
+        :rtype: Optional[int]
+        """
+        pass
+
+    @abstractmethod
+    def arrappend(self, name: str, path: str, objects: Sequence) -> Optional[int]:
+        """
+        Append to the specified array in JSON document.
+
+        :param name: key under which a JSON document is storedobjects: list
+        :type name: str
+        :param path: Redis JSON path string e.g. "job.nodes[2].status"
+        :type path: str
+        :return: Final size of the array
+        :rtype: Optional[int]
+        """
+        pass
+
+
+class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
+    def __init__(self, host="localhost"):
+        self.host = host
+        self.storage = {}
+
+    def lock(self, *args, **kwargs) -> RedisLock:
+        """
+        Create a fake lock, which does nothing but allows KeepVariableDummyRedisServer
+        to conform to the interface.
+        """
+        class DummyLock:
+            def acquire(self):
+                return True
+
+            def release(self):
+                pass
+
+        return DummyLock()
+
     def set(self, key, value, additional_params: Optional[dict] = None):
         if additional_params is None:
             additional_params = {}
@@ -255,53 +322,110 @@ class KeepVariableDummyRedisServer:
         decoded_value = self.decode_loaded_value(value)
         return decoded_value
 
-    def lock(self, *args, **kwargs):
-        return DummyLock()
+    def json_mset(self, name: str, params: dict, *args, **kwargs):
+        """
+        Set multiple keys in a JSON document.
 
-    def json_mset(self, name: str, params: dict):
+        :param name: key under which a JSON document is stored
+        :type name: str
+        :param params: collection of arguments where keys are JSON Paths and values are values to set
+        Keys are Redis Path strings, allowing access to specific elements withing JSON document
+        More info: https://redis.io/docs/stack/json/path/
+        :type params: dict
+
+        e.g.
+        params = {"$.is_saved"=true, "$.status"=SomeEnum.COMPLETED.value}
+        """
         for json_xpath, value in params.items():
-            element, last_element, last_index = self._parse_path(name, json_xpath)
+            element, last_element, last_index = self._extract_object_from_path(
+                name, json_xpath
+            )
             if last_index:
                 element[last_element][last_index] = value
             else:
                 element[last_element] = value
 
-    def query_and_search(
-        self, index_name: str, query: str, sort_by_name: str
-    ) -> tuple[str, str]:
-        found_jobs = [
-            (obj["uid"], obj)
-            for obj in self.storage.values()
-            if obj["status"] == "QUEUED"
-        ]
-        sorted_jobs = sorted(found_jobs, key=lambda x: x[sort_by_name])
-        return sorted_jobs.pop(0)
+    def query(
+        self, query_params: dict, *args, field_to_sort_by: Optional[str] = None,
+        asc=True, **kwargs,
+    ) -> list[dict]:
+        """
+        Simplified alternative to RedisSearch. Allows to search and sort by values of specified fields.
 
+        :param query_params: attribute name to value mapping, e.g. {'status': 'QUEUED', ...}
+        :type query_params: dict
+        :param sort_by_name: attribute name by which results should be sorted
+        :type sort_by_name: str
+        :return:
+        :rtype: Optional[dict]
+        """
+        found_jobs = self.storage.values()
+        for field, value in query_params.items():
+            found_jobs = [job for job in found_jobs if job[field] == value]
+        if field_to_sort_by:
+            found_jobs = sorted(found_jobs, key=lambda x: x[field_to_sort_by])
+        if not asc:
+            found_jobs.reverse()
+
+        return found_jobs
+
+    # Implemented, but not currently used
     def arrlen(self, name: str, path: str) -> Optional[int]:
-        element, last_element, last_index = self._parse_path(name, path)
-        if last_index:
-            return len(element[last_element][last_index])
-        else:
-            return len(element[last_element])
+        try:
+            element, last_element, last_index = self._extract_object_from_path(
+                name, path
+            )
+            if last_index:
+                return len(element[last_element][last_index])
+            else:
+                return len(element[last_element])
+        except KeyError:  # path points to a nonexistent object
+            return None
 
-    def arrappend(self, name: str, path: str, *args) -> None:
-        element, last_element, last_index = self._parse_path(name, path)
-        if last_index:
-            element[last_element][last_index].append(args)
-        else:
-            element[last_element].append(args)
+    def arrappend(self, name: str, path: str, objects: Sequence) -> Optional[int]:
+        try:
+            element, last_element, last_index = self._extract_object_from_path(
+                name, path
+            )
+            if last_index:
+                for obj in objects:
+                    element[last_element][last_index].append(obj)
+                return len(element[last_element][last_index])
+            else:
+                for obj in objects:
+                    element[last_element].append(obj)
+                return len(element[last_element])
+        except KeyError:  # path points to a nonexistent object
+            return None
 
-    def _parse_path(self, name: str, path: str) -> tuple[dict, str, Optional[int]]:
+    def _extract_object_from_path(
+        self, name: str, path: str
+    ) -> tuple[Any, str, Optional[int]]:
+        """
+        Recursively traverses a JSON document under 'name' to access the object defined by the 'path' argument.
+
+        :param name: key under which a JSON document is stored
+        :type name: str
+        :param path: Redis JSON path string e.g. "job.nodes[2].status"
+        :type path: str
+        :return: tuple[referenced object, key, index]
+        :rtype: tuple[dict, str, int]
+
+        As Python does not have pointers, we have to trick it by passing a reference.
+        We're returning a reference to the object 1 level above the final one dictated by the 'path' argument
+        Additionally, we are returning the key to the last value we want to access
+        And the index if that value is actually a list, so we can access that list
+        We can use these return values to access object described by 'path' in the original function
+        """
         # Parsing sequence from 'path' string
         # name = "cache"
         # path = "$.A.B[2].C.D[5]"
         # elements = ["$", "A", "B[2]", "C", "D[5]"]
         # element_list = ["cache", "A", "B", "C", "D"]
         # index_list = [None, None, 2, None, 5]
-        # Then iterate over pairs of both lists and recurrently enter storage dict
+        # Then iterate over pairs of both lists and recurrently dive into nested objects
 
         elements = path.split(".")
-
         pattern = r"\[(\d+)\]"  # Find any "[*]" group where * is one or more digits
         element_list: list[str] = []
         index_list: list[Optional[int]] = []
@@ -317,26 +441,17 @@ class KeepVariableDummyRedisServer:
         root = element_list.index("$")
         element_list[root] = name
 
-        nested = self.storage
+        nested_object = self.storage
         for element, index in zip(element_list[:-1], index_list[:-1]):
             if index is not None:
-                nested = nested[element][index]
+                nested_object = nested_object[element][index]
             else:
-                nested = nested[element]
+                nested_object = nested_object[element]
 
-        # nested is a reference to the object 1 level about the object pointed by 'path'
-        return nested, element_list[-1], index_list[-1]
-
-
-class DummyLock:
-    def acquire(self):
-        return True
-
-    def release(self):
-        pass
+        return nested_object, element_list[-1], index_list[-1]
 
 
-class KeepVariableRedisServer(KeepVariableDummyRedisServer):
+class KeepVariableRedisServer(AbstractKeepVariableServer):
     def __init__(self, host="localhost", port=6379, password=None):
         self.host = host
         self.port = port
@@ -360,6 +475,7 @@ class KeepVariableRedisServer(KeepVariableDummyRedisServer):
         return self._kept_variables
 
     def lock(self, *args, **kwargs):
+        """Wrap Redis Lock object. Inspect wrapped object to investigate signature."""
         return self.redis.lock(*args, **kwargs)
 
     def set(self, key: str, value: str, additional_params: Optional[dict] = None):
@@ -379,55 +495,62 @@ class KeepVariableRedisServer(KeepVariableDummyRedisServer):
         decoded_value = self.decode_loaded_value(value)
         return decoded_value
 
-    def json_mset(self, name: str, params: JsonParams, transaction=True):
+    def json_mset(self, name: str, params: dict[str, Any], transaction=True) -> None:
         """
         Set multiple keys in Redis JSON document. This method uses RedisJSON.
 
         :param name: Key of the Redis variable
         :type name: str
-        :param params: collection of arguments where keys are JSON Paths and values are values to set
+        :param params: dict where keys are JSON Paths and values are values to set
         Keys are Redis Path strings, allowing access to specific elements withing JSON document
         More info: https://redis.io/docs/stack/json/path/
-        :type params: JsonParams
+        :type params: dict
         :param transaction: True if all operations should be done in a single transaction, defaults to True
         :type transaction: bool, optional
 
         e.g.
         params = {"$.is_saved"=true, "$.status"=SomeEnum.COMPLETED.value}
-        params = [("$.is_saved", True), ("$.status", SomeEnum.COMPLETED.value)]
         """
         with self.redis.pipeline(transaction=transaction) as pipe:
-            if isinstance(params, dict):
-                for json_xpath, value in params.items():
-                    pipe.json().set(name, json_xpath, value)
-            elif isinstance(params, Sequence):
-                try:
-                    for json_xpath, value in params:
-                        pipe.json().set(name, json_xpath, value)
-                except ValueError as e:  #  If params cannot be unpacking to 2 vars
-                    raise TypeError(
-                        "params argument must be provided in a Sequence of tuples"
-                    ) from e
-            else:  # If params is unexpected type
-                raise TypeError(
-                    "params argument must be provided in a Sequence of tuples"
-                )
+            for json_xpath, value in params.items():
+                pipe.json().set(name, json_xpath, value)
             pipe.execute()
 
-    def query_and_search(
-        self, index_name: str, query: str, sort_by_name: str
-    ) -> tuple[str, str]:
-        query_obj = Query(query).sort_by(sort_by_name)
-        job_docs: list = self.redis.ft(index_name).search(query_obj).docs
-        job_doc = job_docs.pop(0)
-        job_uid: str = job_doc.id.split(":")[1]  # E.g. 'job:41' -> '41'
-        job_json = job_doc.json
+    def query(
+        self, query_params: dict, index_name: str, *args,
+        field_to_sort_by: Optional[str] = None, asc=True, **kwargs
+    ) -> list[str]:
+        """
+        Simplified wrapper to RedisSearch. Allows to search and sort by a value of Redis TAG fields.
+        Simplistic on purpose, to avoid bloat. Additional functionality should be added in case of need.
 
-        return (job_uid, job_json)
+        :param query_params: attribute name to value mapping, e.g. {'status': 'QUEUED', ...}
+        :type query_params: dict
+        :param index_name: name of the Redis index used for querying
+        :type index_name: str
+        :param field_to_sort_by: attribute name by which results should be sorted, defaults to None
+        :type field_to_sort_by: Optional[str], optional
+        :param asc: True if sort in ascending order, defaults to True
+        :type asc: bool, optional
+        :return: list of found document jsons
+        :rtype: list[str]
+        """
+        tag_query_template = "@{field}:{{{value}}}"
+        final_query = ""
 
+        for field, value in query_params.items():
+            final_query += tag_query_template.format(field=field, value=value)
+
+        query_object = Query(final_query)
+        if field_to_sort_by:
+            query_object.sort_by(field_to_sort_by, asc=asc)
+        job_docs: list = self.redis.ft(index_name).search(query_object).docs
+
+        return [job_doc.json for job_doc in job_docs]
+
+    # Implemented, but not currently used
     def arrlen(self, name: str, path: str) -> Optional[int]:
-        # Redis returns length of the list as a list of 1 element
         return self.redis.json().arrlen(name, path).pop()
 
-    def arrappend(self, name: str, path: str, *arg: Any) -> None:
-        return self.redis.json().arrappend(name, path, *arg)
+    def arrappend(self, name: str, path: str, objects: Sequence) -> Optional[int]:
+        return self.redis.json().arrappend(name, path, *objects).pop()
