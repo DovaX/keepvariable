@@ -261,6 +261,7 @@ class AbstractKeepVariableServer(ABC):
     ) -> list[str]:
         pass
 
+    # Implemented, but not currently used
     @abstractmethod
     def arrlen(self, name: str, path: str) -> Optional[int]:
         """
@@ -322,7 +323,7 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
         decoded_value = self.decode_loaded_value(value)
         return decoded_value
 
-    def json_mset(self, name: str, params: dict, *args, **kwargs):
+    def json_mset(self, name: str, params: dict, *args, **kwargs) -> None:
         """
         Set multiple keys in a JSON document.
 
@@ -369,7 +370,6 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
 
         return found_jobs
 
-    # Implemented, but not currently used
     def arrlen(self, name: str, path: str) -> Optional[int]:
         try:
             element, last_element, last_index = self._extract_object_from_path(
@@ -416,6 +416,8 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
         Additionally, we are returning the key to the last value we want to access
         And the index if that value is actually a list, so we can access that list
         We can use these return values to access object described by 'path' in the original function
+
+        tuple[referenced_object, key, index] --> referenced_object[key][index] = ...
         """
         # Parsing sequence from 'path' string
         # name = "cache"
@@ -475,7 +477,7 @@ class KeepVariableRedisServer(AbstractKeepVariableServer):
         return self._kept_variables
 
     def lock(self, *args, **kwargs):
-        """Wrap Redis Lock object. Inspect wrapped object to investigate signature."""
+        """Wrap Redis Lock object. Inspect wrapped object to investigate it's signature."""
         return self.redis.lock(*args, **kwargs)
 
     def set(self, key: str, value: str, additional_params: Optional[dict] = None):
@@ -548,7 +550,6 @@ class KeepVariableRedisServer(AbstractKeepVariableServer):
 
         return [job_doc.json for job_doc in job_docs]
 
-    # Implemented, but not currently used
     def arrlen(self, name: str, path: str) -> Optional[int]:
         return self.redis.json().arrlen(name, path).pop()
 
