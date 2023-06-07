@@ -52,9 +52,8 @@ class Var:
         varname, keyword, inputs = analyze_definition(definition)
         joined_inputs = ",".join(inputs)
         try:
-            kept_variables[varname] = eval(
-                joined_inputs
-            )  # not use ast.literal_eval -> wrong handling of strings for this use case
+            # not use ast.literal_eval -> wrong handling of strings for this use case
+            kept_variables[varname] = eval(joined_inputs)
         except NameError:
             kept_variables[varname] = var
         return var
@@ -75,18 +74,15 @@ class VarSafe:
         # varname,keyword,inputs=analyze_definition(definition)
         joined_inputs = ",".join(inputs)
         try:
-            kept_variables[varname] = eval(
-                joined_inputs
-            )  # not use ast.literal_eval -> wrong handling of strings for this use case
+            # not use ast.literal_eval -> wrong handling of strings for this use case
+            kept_variables[varname] = eval(joined_inputs)
         except NameError:
             kept_variables[varname] = var
         return var
 
 
 def save_variables(variables, filename="vars.kpv"):
-    with open(
-        filename, "w+", encoding="utf8", errors="ignore"
-    ) as file:  # errors ignore dirty way - might be improved
+    with open(filename, "w+", encoding="utf8", errors="ignore") as file:  # errors ignore dirty way - might be improved
         # try:
         file.write(str(variables))  # .encode("utf-8")
         # except UnicodeEncodeError:
@@ -95,9 +91,7 @@ def save_variables(variables, filename="vars.kpv"):
 
 
 def load_variable_safe(filename="vars.kpv", varname="varname"):
-    with open(
-        filename, encoding="utf8", errors="ignore"
-    ) as file:  # errors ignore dirty way - might be improved
+    with open(filename, encoding="utf8", errors="ignore") as file:  # errors ignore dirty way - might be improved
         rows = file.readlines()
     variable_dict = ast.literal_eval(rows[0])
     this_variable = variable_dict[varname]
@@ -112,9 +106,7 @@ def load_variable(filename="vars.kpv"):
 
 
 def load_variables(filename="vars.kpv"):
-    with open(
-        filename, encoding="utf8", errors="ignore"
-    ) as file:  # errors ignore dirty way - might be improved
+    with open(filename, encoding="utf8", errors="ignore") as file:  # errors ignore dirty way - might be improved
         rows = file.readlines()
     variable_dict = ast.literal_eval(rows[0])
     return variable_dict
@@ -169,11 +161,7 @@ class AbstractKeepVariableServer(ABC):
         if additional_params is None:
             additional_params = {}
 
-        if (
-            isinstance(value, list)
-            or isinstance(value, bool)
-            or isinstance(value, dict)
-        ):
+        if isinstance(value, list) or isinstance(value, bool) or isinstance(value, dict):
             value = json.dumps(value)
         elif isinstance(value, pd.DataFrame):
             data = value.values.tolist()
@@ -253,12 +241,14 @@ class AbstractKeepVariableServer(ABC):
 
     @abstractmethod
     def json_mset(self, name: str, params: dict) -> None:
+        """Set multiple keys in json document - explanations are in abstract subclasses docstrings."""
         pass
 
     @abstractmethod
     def query(
         self, query_params: dict, *args, field_to_sort_by: Optional[str] = None, asc=True,
     ) -> list[str]:
+        """Query KeepVariable store - explanations are in abstract subclasses docstrings."""
         pass
 
     # Implemented, but not currently used
@@ -427,6 +417,7 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
         # index_list = [None, None, 2, None, 5]
         # Then iterate over pairs of both lists and recurrently dive into nested objects
 
+        # Parsing logic
         elements = path.split(".")
         pattern = r"\[(\d+)\]"  # Find any "[*]" group where * is one or more digits
         element_list: list[str] = []
@@ -443,6 +434,7 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
         root = element_list.index("$")
         element_list[root] = name
 
+        # Traversing logic
         nested_object = self.storage
         for element, index in zip(element_list[:-1], index_list[:-1]):
             if index is not None:
