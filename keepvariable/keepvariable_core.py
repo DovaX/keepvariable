@@ -177,6 +177,7 @@ class AbstractKeepVariableServer(ABC):
             data = value.tolist()
             final_data = {"data": data, "object_type": "np.ndarray"}
             value = json.dumps(final_data)
+
         elif isinstance(value, datetime.datetime):
             data = value.strftime("%Y-%m-%d %H:%M:%S")
             final_data = {"data": data, "object_type": "datetime.datetime"}
@@ -213,6 +214,7 @@ class AbstractKeepVariableServer(ABC):
                         value["data"]
                     ).values  # to ensure 64bit values in array
                     return array
+
                 elif value["object_type"] == "datetime.datetime":
                     datetime_value = datetime.datetime.strptime(
                         value["data"], "%Y-%m-%d %H:%M:%S"
