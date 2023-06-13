@@ -5,7 +5,7 @@ import json
 import re
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from typing import Any, Optional, Union
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -254,8 +254,8 @@ class AbstractKeepVariableServer(ABC):
 
     @abstractmethod
     def query(
-        self, query_params: dict, *, field_to_sort_by: Optional[str] = None,
-        asc=True, **kwargs
+        self, query_params: dict, *, field_to_sort_by: Optional[str] = None, asc=True,
+        **kwargs
     ) -> list[tuple]:
         """Query KeepVariable store - explanations are in abstract subclasses docstrings."""
         pass
@@ -386,8 +386,10 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
                 return len(element[last_element][last_index])
             else:
                 return len(element[last_element])
-        except KeyError:  # path points to a nonexistent object
-            return None
+        except (KeyError, IndexError) as e:
+            raise AssertionError(
+                "Nested object does not exist - most probably due to incorrect path arg"
+            ) from e
 
     def arrappend(self, name: str, path: str, objects: Sequence) -> Optional[int]:
         try:
@@ -402,8 +404,10 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
                 for obj in objects:
                     element[last_element].append(obj)
                 return len(element[last_element])
-        except KeyError:  # path points to a nonexistent object
-            return None
+        except (KeyError, IndexError) as e:
+            raise AssertionError(
+                "Nested object does not exist - most probably due to incorrect path arg"
+            ) from e
 
     def _extract_object_from_path(self, name: str,
                                   path: str) -> tuple[Any, str, Optional[int]]:
