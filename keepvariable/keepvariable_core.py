@@ -5,7 +5,7 @@ import json
 import re
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -199,7 +199,9 @@ class AbstractKeepVariableServer(ABC):
 
         return value
 
-    def decode_loaded_value(self, value):
+    def decode_loaded_value(
+        self, value: str
+    ) -> Union[dict, pd.DataFrame, np.ndarray, datetime.datetime]:
         """
         Decode value stored in redis into it's initial value.
         For functions and classes only their code is returned --> they need to be evaluated afterwards!!!.
@@ -244,7 +246,7 @@ class AbstractKeepVariableServer(ABC):
         pass
 
     @abstractmethod
-    def get(self, key: str):
+    def get(self, key: str) -> Union[dict, pd.DataFrame, np.ndarray, datetime.datetime]:
         pass
 
     @abstractmethod
@@ -317,7 +319,7 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
         self.storage[key] = value
         return {key: value}
 
-    def get(self, key):
+    def get(self, key: str) -> Union[dict, pd.DataFrame, np.ndarray, datetime.datetime]:
         value = self.storage.get(key)
         decoded_value = self.decode_loaded_value(value)
         return decoded_value
