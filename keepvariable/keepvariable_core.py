@@ -82,9 +82,8 @@ class VarSafe:
 
 
 def save_variables(variables, filename="vars.kpv"):
-    with open(
-        filename, "w+", encoding="utf8", errors="ignore"
-    ) as file:  # errors ignore dirty way - might be improved
+    with open(filename, "w+", encoding="utf8", errors="ignore") as file:
+        # errors ignore dirty way - might be improved
         # try:
         file.write(str(variables))  # .encode("utf-8")
         # except UnicodeEncodeError:
@@ -93,9 +92,8 @@ def save_variables(variables, filename="vars.kpv"):
 
 
 def load_variable_safe(filename="vars.kpv", varname="varname"):
-    with open(
-        filename, encoding="utf8", errors="ignore"
-    ) as file:  # errors ignore dirty way - might be improved
+    with open(filename, encoding="utf8", errors="ignore") as file:
+        # errors ignore dirty way - might be improved
         rows = file.readlines()
     variable_dict = ast.literal_eval(rows[0])
     this_variable = variable_dict[varname]
@@ -110,9 +108,8 @@ def load_variable(filename="vars.kpv"):
 
 
 def load_variables(filename="vars.kpv"):
-    with open(
-        filename, encoding="utf8", errors="ignore"
-    ) as file:  # errors ignore dirty way - might be improved
+    with open(filename, encoding="utf8", errors="ignore") as file:
+        # errors ignore dirty way - might be improved
         rows = file.readlines()
     variable_dict = ast.literal_eval(rows[0])
     return variable_dict
