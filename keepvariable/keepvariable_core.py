@@ -253,8 +253,9 @@ class AbstractKeepVariableServer(ABC):
 
     @abstractmethod
     def query(
-        self, query_params: dict, *, field_to_sort_by: Optional[str] = None, asc=True,
-        **kwargs
+        self, *, text_params: Optional[dict[str, tuple]] = None,
+        tag_params: Optional[dict[str, tuple]] = None,
+        field_to_sort_by: Optional[str] = None, asc=True, **kwargs
     ) -> list[tuple]:
         """Query KeepVariable store - explanations are in abstract subclasses docstrings."""
         pass
@@ -345,14 +346,22 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
                 element[last_element] = value
 
     def query(
-        self, query_params: dict, *, name: str, field_to_sort_by: Optional[str] = None,
-        asc=True, **kwargs
+        self,
+        *,
+        text_params: dict[str, tuple] = None,
+        tag_params: dict[str, tuple] = None,
+        name: str,
+        field_to_sort_by: Optional[str] = None,
+        asc=True,
+        **kwargs,
     ) -> list[tuple]:
         """
         Simplified alternative to RedisSearch. Allows to search and sort by values of specified fields.
 
-        :param query_params: attribute name to value mapping, e.g. {'status': 'QUEUED', ...}
-        :type query_params: dict
+        :param text_params: key name to a tuple of values mapping, e.g. {'status': ('pipel', ...), ...}
+        :type text_params: dict[str, tuple]
+        :param tag_params: key name to a tuple of values mapping, e.g. {'status': ('QUEUED', ...), ...}
+        :type tag_params: dict[str, tuple]
         :param sort_by_name: attribute name by which results should be sorted
         :type sort_by_name: str
         :return: [('jobs:43', job_dict), ...]
@@ -364,11 +373,24 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
             if name in job_name
         ]  # [('jobs:43', job_dict), ...]
 
-        for field, value in query_params.items():
-            found_jobs = [
-                job for job in found_jobs
-                if job[1].get(field) and job[1].get(field) == value
-            ]
+        # TAG search
+        if tag_params is not None:
+            for field, values in tag_params.items():
+                found_jobs = [
+                    job for job in found_jobs
+                    if job[1].get(field) and job[1].get(field) in values
+                ]
+
+        # TEXT search
+        if text_params is not None:
+            for field, values in text_params.items():
+                for value in values:
+                    # E.g. value = "QUEU", job[1].get(field) = "QUEUED"
+                    found_jobs = [
+                        job for job in found_jobs
+                        if job[1].get(field) and value in job[1].get(field)
+                    ]
+
         if field_to_sort_by:
             found_jobs = sorted(found_jobs, key=lambda x: x[1][field_to_sort_by])
         if not asc:
@@ -530,15 +552,18 @@ class KeepVariableRedisServer(AbstractKeepVariableServer):
             pipe.execute()
 
     def query(
-        self, query_params: dict, *, index_name: str,
+        self, *, text_params: Optional[dict[str, tuple]] = None,
+        tag_params: Optional[dict[str, tuple]] = None, index_name: str,
         field_to_sort_by: Optional[str] = None, asc=True, **kwargs
     ) -> list[tuple]:
         """
-        Simplified wrapper to RedisSearch. Allows to search and sort by a value of Redis TAG fields.
+        Simplified wrapper to RedisSearch. Allows to search and sort by a value of Redis TAG/TEXT fields.
         Simplistic on purpose, to avoid bloat. Additional functionality should be added in case of need.
 
-        :param query_params: attribute name to value mapping, e.g. {'status': 'QUEUED', ...}
-        :type query_params: dict
+        :param text_params: key name to a tuple of values mapping, e.g. {'status': ('pipel', ...), ...}
+        :type text_params: dict[str, tuple]
+        :param tag_params: key name to a tuple of values mapping, e.g. {'status': ('QUEUED', ...), ...}
+        :type tag_params: dict[str, tuple]
         :param index_name: name of the Redis index used for querying
         :type index_name: str
         :param field_to_sort_by: attribute name by which results should be sorted, defaults to None
@@ -548,11 +573,19 @@ class KeepVariableRedisServer(AbstractKeepVariableServer):
         :return: [('jobs:43', job_json), ...]
         :rtype: list[str]
         """
-        tag_query_template = "@{field}:{{{value}}}"
         final_query = ""
 
-        for field, value in query_params.items():
-            final_query += tag_query_template.format(field=field, value=value)
+        if text_params is not None:
+            text_query_template = "{field}:{value}"
+            for field, values in text_params.items():
+                value_str = "|".join(values)
+                final_query += text_query_template.format(field=field, value=value_str)
+
+        if tag_params is not None:
+            tag_query_template = "@{field}:{{{value}}}"
+            for field, values in tag_params.items():
+                value_str = "|".join(values)
+                final_query += tag_query_template.format(field=field, value=value_str)
 
         query_object = Query(final_query)
         if field_to_sort_by:
