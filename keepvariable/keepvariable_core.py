@@ -5,7 +5,7 @@ import json
 import re
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -27,7 +27,7 @@ def get_definition(jump_frames, *args, **kwargs):
 
 
 def analyze_definition(string):
-    args = string[string.find("(") + 1 : -1].split(",")
+    args = string[string.find("(") + 1:-1].split(",")
     inputs = []
     for i in args:
         if i.find("=") != -1:
@@ -82,7 +82,8 @@ class VarSafe:
 
 
 def save_variables(variables, filename="vars.kpv"):
-    with open(filename, "w+", encoding="utf8", errors="ignore") as file:  # errors ignore dirty way - might be improved
+    with open(filename, "w+", encoding="utf8", errors="ignore") as file:
+        # errors ignore dirty way - might be improved
         # try:
         file.write(str(variables))  # .encode("utf-8")
         # except UnicodeEncodeError:
@@ -91,7 +92,8 @@ def save_variables(variables, filename="vars.kpv"):
 
 
 def load_variable_safe(filename="vars.kpv", varname="varname"):
-    with open(filename, encoding="utf8", errors="ignore") as file:  # errors ignore dirty way - might be improved
+    with open(filename, encoding="utf8", errors="ignore") as file:
+        # errors ignore dirty way - might be improved
         rows = file.readlines()
     variable_dict = ast.literal_eval(rows[0])
     this_variable = variable_dict[varname]
@@ -106,7 +108,8 @@ def load_variable(filename="vars.kpv"):
 
 
 def load_variables(filename="vars.kpv"):
-    with open(filename, encoding="utf8", errors="ignore") as file:  # errors ignore dirty way - might be improved
+    with open(filename, encoding="utf8", errors="ignore") as file:
+        # errors ignore dirty way - might be improved
         rows = file.readlines()
     variable_dict = ast.literal_eval(rows[0])
     return variable_dict
@@ -114,7 +117,6 @@ def load_variables(filename="vars.kpv"):
 
 class RefList:
     """This object type serves for enabling grouping lists of objects (e.g. visible/draggable) with common attribute in one list which is always up to date."""
-
     def __init__(self, elements=None, referenced_lists=None):
         if elements is None:
             elements = []
@@ -161,7 +163,8 @@ class AbstractKeepVariableServer(ABC):
         if additional_params is None:
             additional_params = {}
 
-        if isinstance(value, list) or isinstance(value, bool) or isinstance(value, dict):
+        if isinstance(value, list) or isinstance(value,
+                                                 bool) or isinstance(value, dict):
             value = json.dumps(value)
         elif isinstance(value, pd.DataFrame):
             data = value.values.tolist()
@@ -193,7 +196,9 @@ class AbstractKeepVariableServer(ABC):
 
         return value
 
-    def decode_loaded_value(self, value):
+    def decode_loaded_value(
+        self, value: str
+    ) -> Union[dict, pd.DataFrame, np.ndarray, datetime.datetime]:
         """
         Decode value stored in redis into it's initial value.
         For functions and classes only their code is returned --> they need to be evaluated afterwards!!!.
@@ -221,8 +226,8 @@ class AbstractKeepVariableServer(ABC):
                     )
                     return datetime_value
                 elif (
-                    value["object_type"] == "function"
-                    or value["object_type"] == "class"
+                    value["object_type"] == "function" or
+                    value["object_type"] == "class"
                 ):
                     return value["code"]
             return value
@@ -238,7 +243,7 @@ class AbstractKeepVariableServer(ABC):
         pass
 
     @abstractmethod
-    def get(self, key: str):
+    def get(self, key: str) -> Union[dict, pd.DataFrame, np.ndarray, datetime.datetime]:
         pass
 
     @abstractmethod
@@ -248,12 +253,14 @@ class AbstractKeepVariableServer(ABC):
 
     @abstractmethod
     def query(
-        self, query_params: dict, *args, field_to_sort_by: Optional[str] = None, asc=True,
-    ) -> list[str]:
+        self, *, text_params: Optional[dict[str, tuple]] = None,
+        tag_params: Optional[dict[str, tuple]] = None,
+        field_to_sort_by: Optional[str] = None, asc=True, **kwargs
+    ) -> list[tuple]:
         """Query KeepVariable store - explanations are in abstract subclasses docstrings."""
         pass
 
-    # Implemented, but not currently used
+    # Implemented, but currently not used
     @abstractmethod
     def arrlen(self, name: str, path: str) -> Optional[int]:
         """
@@ -310,7 +317,7 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
         self.storage[key] = value
         return {key: value}
 
-    def get(self, key):
+    def get(self, key: str) -> Union[dict, pd.DataFrame, np.ndarray, datetime.datetime]:
         value = self.storage.get(key)
         decoded_value = self.decode_loaded_value(value)
         return decoded_value
@@ -339,24 +346,53 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
                 element[last_element] = value
 
     def query(
-        self, query_params: dict, *args, field_to_sort_by: Optional[str] = None,
-        asc=True, **kwargs,
-    ) -> list[dict]:
+        self,
+        *,
+        text_params: dict[str, tuple] = None,
+        tag_params: dict[str, tuple] = None,
+        name: str,
+        field_to_sort_by: Optional[str] = None,
+        asc=True,
+        **kwargs,
+    ) -> list[tuple]:
         """
         Simplified alternative to RedisSearch. Allows to search and sort by values of specified fields.
 
-        :param query_params: attribute name to value mapping, e.g. {'status': 'QUEUED', ...}
-        :type query_params: dict
+        :param text_params: key name to a tuple of values mapping, e.g. {'status': ('pipel', ...), ...}
+        :type text_params: dict[str, tuple]
+        :param tag_params: key name to a tuple of values mapping, e.g. {'status': ('QUEUED', ...), ...}
+        :type tag_params: dict[str, tuple]
         :param sort_by_name: attribute name by which results should be sorted
         :type sort_by_name: str
-        :return:
-        :rtype: Optional[dict]
+        :return: [('jobs:43', job_dict), ...]
+        :rtype: list[tuple]
         """
-        found_jobs = self.storage.values()
-        for field, value in query_params.items():
-            found_jobs = [job for job in found_jobs if job[field] == value]
+        found_jobs: list[tuple] = [
+            (job_name, value)
+            for job_name, value in self.storage.items()
+            if name in job_name
+        ]  # [('jobs:43', job_dict), ...]
+
+        # TAG search
+        if tag_params is not None:
+            for field, values in tag_params.items():
+                found_jobs = [
+                    job for job in found_jobs
+                    if job[1].get(field) and job[1].get(field) in values
+                ]
+
+        # TEXT search
+        if text_params is not None:
+            for field, values in text_params.items():
+                for value in values:
+                    # E.g. value = "QUEU", job[1].get(field) = "QUEUED"
+                    found_jobs = [
+                        job for job in found_jobs
+                        if job[1].get(field) and value in job[1].get(field)
+                    ]
+
         if field_to_sort_by:
-            found_jobs = sorted(found_jobs, key=lambda x: x[field_to_sort_by])
+            found_jobs = sorted(found_jobs, key=lambda x: x[1][field_to_sort_by])
         if not asc:
             found_jobs.reverse()
 
@@ -371,8 +407,10 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
                 return len(element[last_element][last_index])
             else:
                 return len(element[last_element])
-        except KeyError:  # path points to a nonexistent object
-            return None
+        except (KeyError, IndexError) as e:
+            raise AssertionError(
+                "Nested object does not exist - most probably due to incorrect path arg"
+            ) from e
 
     def arrappend(self, name: str, path: str, objects: Sequence) -> Optional[int]:
         try:
@@ -387,12 +425,13 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
                 for obj in objects:
                     element[last_element].append(obj)
                 return len(element[last_element])
-        except KeyError:  # path points to a nonexistent object
-            return None
+        except (KeyError, IndexError) as e:
+            raise AssertionError(
+                "Nested object does not exist - most probably due to incorrect path arg"
+            ) from e
 
-    def _extract_object_from_path(
-        self, name: str, path: str
-    ) -> tuple[Any, str, Optional[int]]:
+    def _extract_object_from_path(self, name: str,
+                                  path: str) -> tuple[Any, str, Optional[int]]:
         """
         Recursively traverses a JSON document under 'name' to access the object defined by the 'path' argument.
 
@@ -448,10 +487,10 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
 
 
 class KeepVariableRedisServer(AbstractKeepVariableServer):
-    def __init__(self, host="localhost", port=6379, password=None):
-        self.host = host
-        self.port = port
-        self.password = password
+    def __init__(self, host="localhost", port=6379, password: Optional[str] = None):
+        self.host: str = host
+        self.port: int = port
+        self.password: Optional[str] = password
 
         self.redis = redis.Redis(
             host=self.host,
@@ -513,36 +552,47 @@ class KeepVariableRedisServer(AbstractKeepVariableServer):
             pipe.execute()
 
     def query(
-        self, query_params: dict, index_name: str, *args,
+        self, *, text_params: Optional[dict[str, tuple]] = None,
+        tag_params: Optional[dict[str, tuple]] = None, index_name: str,
         field_to_sort_by: Optional[str] = None, asc=True, **kwargs
-    ) -> list[str]:
+    ) -> list[tuple]:
         """
-        Simplified wrapper to RedisSearch. Allows to search and sort by a value of Redis TAG fields.
+        Simplified wrapper to RedisSearch. Allows to search and sort by a value of Redis TAG/TEXT fields.
         Simplistic on purpose, to avoid bloat. Additional functionality should be added in case of need.
 
-        :param query_params: attribute name to value mapping, e.g. {'status': 'QUEUED', ...}
-        :type query_params: dict
+        :param text_params: key name to a tuple of values mapping, e.g. {'status': ('pipel', ...), ...}
+        :type text_params: dict[str, tuple]
+        :param tag_params: key name to a tuple of values mapping, e.g. {'status': ('QUEUED', ...), ...}
+        :type tag_params: dict[str, tuple]
         :param index_name: name of the Redis index used for querying
         :type index_name: str
         :param field_to_sort_by: attribute name by which results should be sorted, defaults to None
         :type field_to_sort_by: Optional[str], optional
         :param asc: True if sort in ascending order, defaults to True
         :type asc: bool, optional
-        :return: list of found document jsons
+        :return: [('jobs:43', job_json), ...]
         :rtype: list[str]
         """
-        tag_query_template = "@{field}:{{{value}}}"
         final_query = ""
 
-        for field, value in query_params.items():
-            final_query += tag_query_template.format(field=field, value=value)
+        if text_params is not None:
+            text_query_template = "{field}:{value}"
+            for field, values in text_params.items():
+                value_str = "|".join(values)
+                final_query += text_query_template.format(field=field, value=value_str)
+
+        if tag_params is not None:
+            tag_query_template = "@{field}:{{{value}}}"
+            for field, values in tag_params.items():
+                value_str = "|".join(values)
+                final_query += tag_query_template.format(field=field, value=value_str)
 
         query_object = Query(final_query)
         if field_to_sort_by:
             query_object.sort_by(field_to_sort_by, asc=asc)
         job_docs: list = self.redis.ft(index_name).search(query_object).docs
 
-        return [job_doc.json for job_doc in job_docs]
+        return [(job_doc.id, job_doc.json) for job_doc in job_docs]
 
     def arrlen(self, name: str, path: str) -> Optional[int]:
         return self.redis.json().arrlen(name, path).pop()
