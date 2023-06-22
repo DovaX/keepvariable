@@ -148,6 +148,28 @@ class RefList:
 
 
 class AbstractKeepVariableServer(ABC):
+    def _json_serialize_dataframe(self, df:pd.DataFrame) -> str:
+        """Takes a pandas DataFrame and serialized it to a json-like string.
+        The function uses pd.DataFrame().to_json() approach so as to handle various variable types with ease (pd.NA, pd.NaT, datetime etc.)
+
+        Example:
+            input: df2 = pd.DataFrame([[1,datetime.datetime.now(),3],[4,5,pd.NA],[pd.NaT,8,None]])
+            output: {"columns": [0, 1, 2], "data": [[1, 1685402664424, 3], [4, 5, null], [null, 8, null]], "object_type": "pd.DataFrame", "attrs": {}}'
+
+        Args:
+            df (pd.DataFrame): DataFrame to be serialized
+
+        Returns:
+            str: DataFrame serialized into json-like string
+        """        
+        df_json = df.to_json(orient='split')
+        df_as_dict = json.loads(df_json)
+        df_as_dict["object_type"] = 'pd.DataFrame'
+        df_as_dict["attrs"] = df.attrs
+        df_json = json.dumps(df_as_dict)
+        
+        return df_json
+
     def parse_saved_value(self, value, additional_params: Optional[dict] = None):
         """
         Parse enterted value to json format. Certain special type values are serialized (DFs, datetimes, functions, classes).
@@ -167,15 +189,18 @@ class AbstractKeepVariableServer(ABC):
                                                  bool) or isinstance(value, dict):
             value = json.dumps(value)
         elif isinstance(value, pd.DataFrame):
-            data = value.values.tolist()
-            columns = list(value.columns)
-            final_data = {
-                "columns": columns,
-                "data": data,
-                "object_type": "pd.DataFrame",
-            }
-            print(final_data)
-            value = json.dumps(final_data)
+            value = self._json_serialize_dataframe(value)
+            # Old implementation
+            # TODO: Keep for now, delete in following commits
+            # data = value.values.tolist()
+            # columns = list(value.columns)
+            # final_data = {
+            #     "columns": columns,
+            #     "data": data,
+            #     "object_type": "pd.DataFrame",
+            # }
+            # print(final_data)
+            # value = json.dumps(final_data)
         elif isinstance(value, np.ndarray):
             data = value.tolist()
             final_data = {"data": data, "object_type": "np.ndarray"}
