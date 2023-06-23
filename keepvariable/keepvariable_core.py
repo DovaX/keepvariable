@@ -185,8 +185,8 @@ class AbstractKeepVariableServer(ABC):
         if additional_params is None:
             additional_params = {}
 
-        if value is None:
-            value = ''               # Redis does not natively support None values
+        if isinstance(value, type(None)):
+            value = {"object_type": "NoneType"}              # Redis does not natively support None values
         elif isinstance(value, (list, bool, dict)):
             value = json.dumps(value)
         elif isinstance(value, pd.DataFrame):
@@ -234,15 +234,13 @@ class AbstractKeepVariableServer(ABC):
         :return: Parsed variable value
         :rtype: Any
         """
-        
-        # Key might not be in storage yet
-        if value is None:
-            return None
 
         try:
             value = json.loads(value)
             if "object_type" in value and isinstance(value, dict):
-                if value["object_type"] == "pd.DataFrame":
+                if value["object_type"] == "NoneType":
+                    return None
+                elif value["object_type"] == "pd.DataFrame":
                     df = pd.DataFrame(value["data"], columns=value["columns"])
                     return df
                 elif value["object_type"] == "np.ndarray":
@@ -350,6 +348,11 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
 
     def get(self, key: str) -> Union[dict, pd.DataFrame, np.ndarray, datetime.datetime]:
         value = self.storage.get(key)
+
+        # Do not move this condition to decode_loaded_value(), it only deals with missing keys
+        if value is None:
+            return None
+
         decoded_value = self.decode_loaded_value(value)
         return decoded_value
 
@@ -555,8 +558,9 @@ class KeepVariableRedisServer(AbstractKeepVariableServer):
     def get(self, key: str) -> Optional[Any]:
         value = self.redis.get(key)
 
+        # Do not move this condition to decode_loaded_value(), it only deals with missing keys
         if value is None:
-            return value
+            return None
 
         decoded_value = self.decode_loaded_value(value)
         return decoded_value
