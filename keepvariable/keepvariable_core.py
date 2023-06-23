@@ -185,8 +185,9 @@ class AbstractKeepVariableServer(ABC):
         if additional_params is None:
             additional_params = {}
 
-        if isinstance(value, list) or isinstance(value,
-                                                 bool) or isinstance(value, dict):
+        if value is None:
+            value = ''               # Redis does not natively support None values
+        elif isinstance(value, (list, bool, dict)):
             value = json.dumps(value)
         elif isinstance(value, pd.DataFrame):
             value = self._json_serialize_dataframe(value)
@@ -233,6 +234,11 @@ class AbstractKeepVariableServer(ABC):
         :return: Parsed variable value
         :rtype: Any
         """
+        
+        # Key might not be in storage yet
+        if value is None:
+            return None
+
         try:
             value = json.loads(value)
             if "object_type" in value and isinstance(value, dict):
