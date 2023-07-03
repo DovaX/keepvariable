@@ -163,8 +163,7 @@ class AbstractKeepVariableServer(ABC):
         if additional_params is None:
             additional_params = {}
 
-        if isinstance(value, list) or isinstance(value,
-                                                 bool) or isinstance(value, dict):
+        if isinstance(value, list) or isinstance(value, bool) or isinstance(value, dict):
             value = json.dumps(value)
         elif isinstance(value, pd.DataFrame):
             data = value.values.tolist()
@@ -196,9 +195,8 @@ class AbstractKeepVariableServer(ABC):
 
         return value
 
-    def decode_loaded_value(
-        self, value: str
-    ) -> Union[dict, pd.DataFrame, np.ndarray, datetime.datetime]:
+    def decode_loaded_value(self,
+                            value: str) -> Union[dict, pd.DataFrame, np.ndarray, datetime.datetime]:
         """
         Decode value stored in redis into it's initial value.
         For functions and classes only their code is returned --> they need to be evaluated afterwards!!!.
@@ -215,20 +213,13 @@ class AbstractKeepVariableServer(ABC):
                     df = pd.DataFrame(value["data"], columns=value["columns"])
                     return df
                 elif value["object_type"] == "np.ndarray":
-                    array = pd.DataFrame(
-                        value["data"]
-                    ).values  # to ensure 64bit values in array
+                    array = pd.DataFrame(value["data"]).values  # to ensure 64bit values in array
                     return array
 
                 elif value["object_type"] == "datetime.datetime":
-                    datetime_value = datetime.datetime.strptime(
-                        value["data"], "%Y-%m-%d %H:%M:%S"
-                    )
+                    datetime_value = datetime.datetime.strptime(value["data"], "%Y-%m-%d %H:%M:%S")
                     return datetime_value
-                elif (
-                    value["object_type"] == "function" or
-                    value["object_type"] == "class"
-                ):
+                elif (value["object_type"] == "function" or value["object_type"] == "class"):
                     return value["code"]
             return value
         except json.JSONDecodeError:  # if type is str, it fails to decode
@@ -254,8 +245,8 @@ class AbstractKeepVariableServer(ABC):
     @abstractmethod
     def query(
         self, *, text_params: Optional[dict[str, tuple]] = None,
-        tag_params: Optional[dict[str, tuple]] = None,
-        field_to_sort_by: Optional[str] = None, asc=True, **kwargs
+        tag_params: Optional[dict[str, tuple]] = None, field_to_sort_by: Optional[str] = None,
+        asc=True, **kwargs
     ) -> dict[str, dict]:
         """Query KeepVariable store - explanations are in abstract subclasses docstrings."""
         pass
@@ -289,6 +280,25 @@ class AbstractKeepVariableServer(ABC):
         """
         pass
 
+    @abstractmethod
+    def scan(self, match_string: str, count: int = 50, type_: Optional[str] = None):
+        """
+        Find saved keys, matching their name with a given glob-style pattern.
+        This command does not block the server, as it is based on a cursor-style iterator.
+
+        :param match_string: string pattern to match keys against, e.g. 'jobs:*'
+        :type match_string: str
+        :param count: how many rows to fetch in one iteration, defaults to 50
+        :type count: int, optional
+        :param type_: filter on specified Redis key type, defaults to None
+        :type type_: Optional[str], optional
+        """
+        pass
+
+    @abstractmethod
+    def delete(self, *names: list[str]) -> int:
+        pass
+
 
 class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
     def __init__(self, host="localhost"):
@@ -309,18 +319,20 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
 
         return DummyLock()
 
-    def set(self, key, value, additional_params: Optional[dict] = None):
-        if additional_params is None:
-            additional_params = {}
+    def set(self, name: str, value, additional_params: Optional[dict] = None) -> dict[str, str]:
+        additional_params = {} if additional_params is None else additional_params
 
         value = self.parse_saved_value(value, additional_params)
-        self.storage[key] = value
-        return {key: value}
+        self.storage[name] = value
+        return {name: value}
 
-    def get(self, key: str) -> Union[dict, pd.DataFrame, np.ndarray, datetime.datetime]:
-        value = self.storage.get(key)
-        decoded_value = self.decode_loaded_value(value)
-        return decoded_value
+    # QUESTION: For in-app memory, is there a point to store serialized values?
+    def get(self, name: str) -> Union[dict, pd.DataFrame, np.ndarray, datetime.datetime]:
+        value = self.storage.get(name)
+        if isinstance(value, str):
+            decoded_value = self.decode_loaded_value(value)
+            return decoded_value
+        return value
 
     def json_mset(self, name: str, params: dict, *args, **kwargs) -> None:
         """
@@ -337,9 +349,7 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
         params = {"$.is_saved"=true, "$.status"=SomeEnum.COMPLETED.value}
         """
         for json_xpath, value in params.items():
-            element, last_element, last_index = self._extract_object_from_path(
-                name, json_xpath
-            )
+            element, last_element, last_index = self._extract_object_from_path(name, json_xpath)
             if last_index:
                 element[last_element][last_index] = value
             else:
@@ -368,9 +378,7 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
         :rtype: list[tuple]
         """
         found_jobs: dict[str, dict] = {
-            job_name: value
-            for job_name, value in self.storage.items()
-            if name in job_name
+            job_name: value for job_name, value in self.storage.items() if name in job_name
         }  # {'jobs:43': job_dict, ...}
 
         # TAG search
@@ -392,19 +400,16 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
                     }
 
         if field_to_sort_by:
-            found_jobs_list = sorted(
-                found_jobs.items(), key=lambda x: x[1][field_to_sort_by]
-            )
-        if not asc:
-            found_jobs_list.reverse()
+            found_jobs_list = sorted(found_jobs.items(), key=lambda x: x[1][field_to_sort_by])
+            if not asc:
+                found_jobs_list.reverse()
+            found_jobs = dict(found_jobs_list)
 
-        return dict(found_jobs_list)
+        return found_jobs
 
     def arrlen(self, name: str, path: str) -> Optional[int]:
         try:
-            element, last_element, last_index = self._extract_object_from_path(
-                name, path
-            )
+            element, last_element, last_index = self._extract_object_from_path(name, path)
             if last_index:
                 return len(element[last_element][last_index])
             else:
@@ -416,9 +421,7 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
 
     def arrappend(self, name: str, path: str, objects: Sequence) -> Optional[int]:
         try:
-            element, last_element, last_index = self._extract_object_from_path(
-                name, path
-            )
+            element, last_element, last_index = self._extract_object_from_path(name, path)
             if last_index:
                 for obj in objects:
                     element[last_element][last_index].append(obj)
@@ -432,8 +435,7 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
                 "Nested object does not exist - most probably due to incorrect path arg"
             ) from e
 
-    def _extract_object_from_path(self, name: str,
-                                  path: str) -> tuple[Any, str, Optional[int]]:
+    def _extract_object_from_path(self, name: str, path: str) -> tuple[Any, str, Optional[int]]:
         """
         Recursively traverses a JSON document under 'name' to access the object defined by the 'path' argument.
 
@@ -487,11 +489,28 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
 
         return nested_object, element_list[-1], index_list[-1]
 
+    def scan(self, match_string: str, *args, **kwargs) -> list[str]:
+        """
+        Find saved keys, matching their name with a given glob-style pattern.
+        This command does not block the server, as it is based on a cursor-style iterator.
+
+        :param match_string: string pattern to match keys against, e.g. 'jobs:*'
+        :type match_string: str
+        :return: list of found key names
+        :rtype: list[str]
+        """
+        # Convert glob-style pattern to regex
+        match_pattern = match_string.replace("*", ".*").replace("?", ".")
+        results = [key for key in self.storage.keys() if re.search(match_pattern, key)]
+        return results
+
+    def delete(self, *names: list[str]) -> int:
+        return sum(1 for name in names if self.storage.pop(name, None))
+
 
 class KeepVariableRedisServer(AbstractKeepVariableServer):
     def __init__(
-        self, host="localhost", port=6379, db=0, username='default',
-        password: Optional[str] = None
+        self, host="localhost", port=6379, db=0, username='default', password: Optional[str] = None
     ):
         self.host: str = host
         self.port: int = port
@@ -526,12 +545,14 @@ class KeepVariableRedisServer(AbstractKeepVariableServer):
         return result
 
     def get(self, key: str) -> Optional[Any]:
-        value = self.redis.get(key)
-
-        if value is None:
-            return value
-
-        decoded_value = self.decode_loaded_value(value)
+        try:
+            value = self.redis.get(key)
+            if value is None:
+                return value
+            decoded_value = self.decode_loaded_value(value)
+        # Raised when trying to get JSON document in Redis. JSON documents have their own get method
+        except redis.exceptions.ResponseError:
+            decoded_value = self.redis.json().get(key)
         return decoded_value
 
     def json_mset(self, name: str, params: dict[str, Any], transaction=True) -> None:
@@ -609,3 +630,24 @@ class KeepVariableRedisServer(AbstractKeepVariableServer):
 
     def arrappend(self, name: str, path: str, objects: Sequence) -> Optional[int]:
         return self.redis.json().arrappend(name, path, *objects).pop()
+
+    def scan(self, match_string: str, count: int = 50, type_: Optional[str] = None) -> list[str]:
+        """
+        Find saved keys, matching their name with a given glob-style pattern.
+        This command does not block the server, as it is based on a cursor-style iterator.
+
+        https://redis.io/commands/scan/
+
+        :param match_string: string pattern to match keys against, e.g. 'jobs:*'
+        :type match_string: str
+        :param count: how many rows, defaults to 50
+        :type count: int, optional
+        :param type_: filter on specified Redis key type, defaults to None
+        :type type_: Optional[str], optional
+        :return: list of found keys
+        :rtype: list[str]
+        """
+        return list(self.redis.scan_iter(match_string, count, type_))
+
+    def delete(self, *names: list[str]) -> int:
+        return self.redis.delete(*names)
