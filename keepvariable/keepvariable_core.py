@@ -256,7 +256,7 @@ class AbstractKeepVariableServer(ABC):
         self, *, text_params: Optional[dict[str, tuple]] = None,
         tag_params: Optional[dict[str, tuple]] = None,
         field_to_sort_by: Optional[str] = None, asc=True, **kwargs
-    ) ->  dict[str, dict]:
+    ) -> dict[str, dict]:
         """Query KeepVariable store - explanations are in abstract subclasses docstrings."""
         pass
 
@@ -371,7 +371,7 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
             job_name: value
             for job_name, value in self.storage.items()
             if name in job_name
-          }  # {'jobs:43': job_dict, ...}
+        }  # {'jobs:43': job_dict, ...}
 
         # TAG search
         if tag_params is not None:
@@ -392,7 +392,9 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
                     }
 
         if field_to_sort_by:
-            found_jobs_list = sorted(found_jobs.items(), key=lambda x: x[1][field_to_sort_by])
+            found_jobs_list = sorted(
+                found_jobs.items(), key=lambda x: x[1][field_to_sort_by]
+            )
         if not asc:
             found_jobs_list.reverse()
 
@@ -487,18 +489,20 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
 
 
 class KeepVariableRedisServer(AbstractKeepVariableServer):
-    def __init__(self, host="localhost", port=6379, password: Optional[str] = None):
+    def __init__(
+        self, host="localhost", port=6379, db=0, username='default',
+        password: Optional[str] = None
+    ):
         self.host: str = host
         self.port: int = port
+        self.db = db
+        self.username: str = username
         self.password: Optional[str] = password
 
+        # Redis instance maintains connection pool internally, additionally it is thread-safe.
         self.redis = redis.Redis(
-            host=self.host,
-            port=self.port,
-            db=0,
-            password=self.password,
-            decode_responses=True,
-            charset="utf-8",
+            host=self.host, port=self.port, username=self.username, db=self.db,
+            password=self.password, decode_responses=True, charset="utf-8"
         )
 
     @property
