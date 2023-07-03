@@ -591,6 +591,10 @@ class KeepVariableRedisServer(AbstractKeepVariableServer):
                 value_str = "|".join(values)
                 final_query += tag_query_template.format(field=field, value=value_str)
 
+        # If no query was specified, return all records from the index
+        if not final_query:
+            final_query = "*"
+
         # Query example: "@type:PIPEL @status:{QUEUED|COMPLETED}"
         # Explanation: find all jobs with type field containing 'PIPEL' and status being either 'QUEUED' or 'COMPLETED'
         query_object = Query(final_query)
