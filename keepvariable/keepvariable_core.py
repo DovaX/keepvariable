@@ -580,7 +580,7 @@ class KeepVariableRedisServer(AbstractKeepVariableServer):
         self, *, text_params: Optional[dict[str, tuple]] = None,
         tag_params: Optional[dict[str, tuple]] = None, index_name: str,
         field_to_sort_by: Optional[str] = None, asc=True, **kwargs
-    ) -> dict[str, dict]:
+    ) -> dict:
         """
         Simplified wrapper to RedisSearch. Allows to search and sort by a value of Redis TAG/TEXT fields.
         Simplistic on purpose, to avoid bloat. Additional functionality should be added in case of need.
@@ -595,8 +595,8 @@ class KeepVariableRedisServer(AbstractKeepVariableServer):
         :type field_to_sort_by: Optional[str], optional
         :param asc: True if sort in ascending order, defaults to True
         :type asc: bool, optional
-        :return: {'jobs:43': job_json, ...}
-        :rtype: dict[str, dict]
+        :return: {'jobs:43': job_dict, ...}
+        :rtype: dict[str, Any]
         """
         final_query = ""
 
@@ -623,7 +623,7 @@ class KeepVariableRedisServer(AbstractKeepVariableServer):
             query_object.sort_by(field_to_sort_by, asc=asc)
 
         job_docs: list = self.redis.ft(index_name).search(query_object).docs
-        return {job_doc.id: job_doc.json for job_doc in job_docs}
+        return {job_doc.id: self.decode_loaded_value(job_doc.json) for job_doc in job_docs}
 
     def arrlen(self, name: str, path: str) -> Optional[int]:
         return self.redis.json().arrlen(name, path).pop()
