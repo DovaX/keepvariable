@@ -148,6 +148,28 @@ class RefList:
 
 
 class AbstractKeepVariableServer(ABC):
+    def _json_serialize_dataframe(self, df:pd.DataFrame) -> str:
+        """Takes a pandas DataFrame and serialized it to a json-like string.
+        The function uses pd.DataFrame().to_json() approach so as to handle various variable types with ease (pd.NA, pd.NaT, datetime etc.)
+
+        Example:
+            input: df2 = pd.DataFrame([[1,datetime.datetime.now(),3],[4,5,pd.NA],[pd.NaT,8,None]])
+            output: {"columns": [0, 1, 2], "data": [[1, 1685402664424, 3], [4, 5, null], [null, 8, null]], "object_type": "pd.DataFrame", "attrs": {}}'
+
+        Args:
+            df (pd.DataFrame): DataFrame to be serialized
+
+        Returns:
+            str: DataFrame serialized into json-like string
+        """        
+        df_json = df.to_json(orient='split')
+        df_as_dict = json.loads(df_json)
+        df_as_dict["object_type"] = 'pd.DataFrame'
+        df_as_dict["attrs"] = df.attrs
+        df_json = json.dumps(df_as_dict)
+        
+        return df_json
+
     def parse_saved_value(self, value, additional_params: Optional[dict] = None):
         """
         Parse enterted value to json format. Certain special type values are serialized (DFs, datetimes, functions, classes).
@@ -163,18 +185,24 @@ class AbstractKeepVariableServer(ABC):
         if additional_params is None:
             additional_params = {}
 
-        if isinstance(value, list) or isinstance(value, bool) or isinstance(value, dict):
+            
+        if isinstance(value, type(None)):
+            value = {"object_type": "NoneType"} # Redis does not natively support None values
+        elif isinstance(value, list) or isinstance(value, bool) or isinstance(value, dict):
             value = json.dumps(value)
         elif isinstance(value, pd.DataFrame):
-            data = value.values.tolist()
-            columns = list(value.columns)
-            final_data = {
-                "columns": columns,
-                "data": data,
-                "object_type": "pd.DataFrame",
-            }
-            print(final_data)
-            value = json.dumps(final_data)
+            value = self._json_serialize_dataframe(value)
+            # Old implementation
+            # TODO: Keep for now, delete in following commits
+            # data = value.values.tolist()
+            # columns = list(value.columns)
+            # final_data = {
+            #     "columns": columns,
+            #     "data": data,
+            #     "object_type": "pd.DataFrame",
+            # }
+            # print(final_data)
+            # value = json.dumps(final_data)
         elif isinstance(value, np.ndarray):
             data = value.tolist()
             final_data = {"data": data, "object_type": "np.ndarray"}
@@ -206,10 +234,13 @@ class AbstractKeepVariableServer(ABC):
         :return: Parsed variable value
         :rtype: Any
         """
+
         try:
             value = json.loads(value)
             if "object_type" in value and isinstance(value, dict):
-                if value["object_type"] == "pd.DataFrame":
+                if value["object_type"] == "NoneType":
+                    return None
+                elif value["object_type"] == "pd.DataFrame":
                     df = pd.DataFrame(value["data"], columns=value["columns"])
                     return df
                 elif value["object_type"] == "np.ndarray":
@@ -319,20 +350,25 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
 
         return DummyLock()
 
-    def set(self, name: str, value, additional_params: Optional[dict] = None) -> dict[str, str]:
+    def set(self, key: str, value, additional_params: Optional[dict] = None) -> dict[str, str]:
         additional_params = {} if additional_params is None else additional_params
 
         value = self.parse_saved_value(value, additional_params)
-        self.storage[name] = value
-        return {name: value}
+        self.storage[key] = value
+        return {key: value}
 
-    # QUESTION: For in-app memory, is there a point to store serialized values?
-    def get(self, name: str) -> Union[dict, pd.DataFrame, np.ndarray, datetime.datetime]:
-        value = self.storage.get(name)
-        if isinstance(value, str):
-            decoded_value = self.decode_loaded_value(value)
-            return decoded_value
-        return value
+    # QUESTION: For in-app memory, is there a point to store serialized values? - Dom: yes, it is not used only as in-app memory
+    def get(self, key: str) -> Union[dict, pd.DataFrame, np.ndarray, datetime.datetime]:
+        value = self.storage.get(key)
+        
+        
+          
+        # Do not move this condition to decode_loaded_value(), it only deals with missing keys
+        if value is None:
+            return None
+
+        decoded_value = self.decode_loaded_value(value)
+        return decoded_value
 
     def json_mset(self, name: str, params: dict, *args, **kwargs) -> None:
         """
@@ -547,6 +583,8 @@ class KeepVariableRedisServer(AbstractKeepVariableServer):
     def get(self, key: str) -> Optional[Any]:
         try:
             value = self.redis.get(key)
+      
+            # Do not move this condition to decode_loaded_value(), it only deals with missing keys
             if value is None:
                 return value
             decoded_value = self.decode_loaded_value(value)
