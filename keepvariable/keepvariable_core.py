@@ -4,12 +4,13 @@ import inspect
 import json
 import re
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
+from collections.abc import Iterable
 from typing import Any, Optional, Union
 
 import numpy as np
 import pandas as pd
 import redis
+from redis.client import Pipeline as RedisPipeline
 from redis.commands.search.query import Query
 from redis.lock import Lock as RedisLock
 
@@ -61,8 +62,7 @@ class Var:
 
 class VarSafe:
     def __new__(cls, var, varname, inputs):
-        """
-        var=variable
+        """var=variable
         varname=string of var.__name__
         inputs=parameters in bracket.
 
@@ -149,8 +149,7 @@ class RefList:
 
 class AbstractKeepVariableServer(ABC):
     def parse_saved_value(self, value, additional_params: Optional[dict] = None):
-        """
-        Parse enterted value to json format. Certain special type values are serialized (DFs, datetimes, functions, classes).
+        """Parse enterted value to json format. Certain special type values are serialized (DFs, datetimes, functions, classes).
 
         :param value: Entered value of any type (not all types can get serialized and stored however!)
         :type value: Any
@@ -197,8 +196,7 @@ class AbstractKeepVariableServer(ABC):
 
     def decode_loaded_value(self,
                             value: str) -> Union[dict, pd.DataFrame, np.ndarray, datetime.datetime]:
-        """
-        Decode value stored in redis into it's initial value.
+        """Decode value stored in redis into it's initial value.
         For functions and classes only their code is returned --> they need to be evaluated afterwards!!!.
 
         :param value: Variable value from redis
@@ -230,7 +228,10 @@ class AbstractKeepVariableServer(ABC):
         pass
 
     @abstractmethod
-    def set(self, key: str, value, additional_params: Optional[dict] = None):
+    def set(
+        self, key: str, value, additional_params: Optional[dict] = None, *,
+        pipeline: Optional[RedisPipeline] = None
+    ):
         pass
 
     @abstractmethod
@@ -238,7 +239,8 @@ class AbstractKeepVariableServer(ABC):
         pass
 
     @abstractmethod
-    def json_mset(self, name: str, params: dict) -> None:
+    def json_mset(self, name: str, params: dict, *,
+                  pipeline: Optional[RedisPipeline] = None) -> Optional[RedisPipeline]:
         """Set multiple keys in json document - explanations are in abstract subclasses docstrings."""
         pass
 
@@ -253,23 +255,24 @@ class AbstractKeepVariableServer(ABC):
 
     # Implemented, but currently not used
     @abstractmethod
-    def arrlen(self, name: str, path: str) -> Optional[int]:
-        """
-        Return length of the specified array in JSON document.
+    def arrlen(self, name: str, path: str, *,
+               pipeline: Optional[RedisPipeline] = None) -> Union[int, None, RedisPipeline]:
+        """Return length of the specified array in JSON document, or pipeline if passed.
 
         :param name: key under which a JSON document is stored
         :type name: str
-        :param path: Redis JSON path string e.g. "job.nodes[2].status"
+        :param path: Redis JSON path string e.g. "job.nodes"
         :type path: str
-        :return: Size of the array
-        :rtype: Optional[int]
+        :return: Length of the array or pipeline if passed. None if array does not exist.
+        :rtype: Union[int, None, RedisPipeline]
         """
         pass
 
     @abstractmethod
-    def arrappend(self, name: str, path: str, objects: Sequence) -> Optional[int]:
-        """
-        Append to the specified array in JSON document.
+    def arrappend(
+        self, name: str, path: str, objects: Iterable, *, pipeline: Optional[RedisPipeline] = None
+    ) -> Optional[int]:
+        """Append to the specified array in JSON document.
 
         :param name: key under which a JSON document is storedobjects: list
         :type name: str
@@ -281,9 +284,8 @@ class AbstractKeepVariableServer(ABC):
         pass
 
     @abstractmethod
-    def scan(self, match_string: str, count: int = 50, type_: Optional[str] = None):
-        """
-        Find saved keys, matching their name with a given glob-style pattern.
+    def scan(self, match_string: str, count: int = 50, type_: Optional[str] = None) -> list[str]:
+        """Find saved keys, matching their name with a given glob-style pattern.
         This command does not block the server, as it is based on a cursor-style iterator.
 
         :param match_string: string pattern to match keys against, e.g. 'jobs:*'
@@ -296,7 +298,9 @@ class AbstractKeepVariableServer(ABC):
         pass
 
     @abstractmethod
-    def delete(self, *names: list[str]) -> int:
+    def delete(self, *names: list[str],
+               pipeline: Optional[RedisPipeline] = None) -> Union[int, RedisPipeline]:
+        """Delete multiple keys - explanations are in abstract subclasses docstrings."""
         pass
 
 
@@ -306,8 +310,7 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
         self.storage = {}
 
     def lock(self, *args, **kwargs) -> RedisLock:
-        """
-        Create a fake lock, which does nothing but allows KeepVariableDummyRedisServer
+        """Create a fake lock, which does nothing but allows KeepVariableDummyRedisServer
         to conform to the interface.
         """
         class DummyLock:
@@ -319,7 +322,8 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
 
         return DummyLock()
 
-    def set(self, name: str, value, additional_params: Optional[dict] = None) -> dict[str, str]:
+    def set(self, name: str, value, additional_params: Optional[dict] = None,
+            **kwargs) -> dict[str, str]:
         additional_params = {} if additional_params is None else additional_params
 
         value = self.parse_saved_value(value, additional_params)
@@ -335,8 +339,7 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
         return value
 
     def json_mset(self, name: str, params: dict, *args, **kwargs) -> None:
-        """
-        Set multiple keys in a JSON document.
+        """Set multiple keys in a JSON document.
 
         :param name: key under which a JSON document is stored
         :type name: str
@@ -365,8 +368,7 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
         asc=True,
         **kwargs,
     ) -> dict[str, dict]:
-        """
-        Simplified alternative to RedisSearch. Allows to search and sort by values of specified fields.
+        """Simplified alternative to RedisSearch. Allows to search and sort by values of specified fields.
 
         :param text_params: key name to a tuple of values mapping, e.g. {'status': ('pipel', ...), ...}
         :type text_params: dict[str, tuple]
@@ -407,7 +409,7 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
 
         return found_jobs
 
-    def arrlen(self, name: str, path: str) -> Optional[int]:
+    def arrlen(self, name: str, path: str, **kwargs) -> Optional[int]:
         try:
             element, last_element, last_index = self._extract_object_from_path(name, path)
             if last_index:
@@ -419,7 +421,7 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
                 "Nested object does not exist - most probably due to incorrect path arg"
             ) from e
 
-    def arrappend(self, name: str, path: str, objects: Sequence) -> Optional[int]:
+    def arrappend(self, name: str, path: str, objects: Iterable, **kwargs) -> Optional[int]:
         try:
             element, last_element, last_index = self._extract_object_from_path(name, path)
             if last_index:
@@ -436,13 +438,12 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
             ) from e
 
     def _extract_object_from_path(self, name: str, path: str) -> tuple[Any, str, Optional[int]]:
-        """
-        Recursively traverses a JSON document under 'name' to access the object defined by the 'path' argument.
+        """Recursively traverses a JSON document under 'name' to access the object defined by the 'path' argument.
 
         :param name: key under which a JSON document is stored
         :type name: str
         :param path: Redis JSON path string e.g. "job.nodes[2].status"
-        :type path: str
+        :type path: strdelete
         :return: tuple[referenced object, key, index]
         :rtype: tuple[dict, str, int]
 
@@ -454,7 +455,7 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
 
         tuple[referenced_object, key, index] --> referenced_object[key][index] = ...
         """
-        # Parsing sequence from 'path' string
+        # Parsing Iterable from 'path' string
         # name = "cache"
         # path = "$.A.B[2].C.D[5]"
         # elements = ["$", "A", "B[2]", "C", "D[5]"]
@@ -490,8 +491,7 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
         return nested_object, element_list[-1], index_list[-1]
 
     def scan(self, match_string: str, *args, **kwargs) -> list[str]:
-        """
-        Find saved keys, matching their name with a given glob-style pattern.
+        """Find saved keys, matching their name with a given glob-style pattern.
         This command does not block the server, as it is based on a cursor-style iterator.
 
         :param match_string: string pattern to match keys against, e.g. 'jobs:*'
@@ -504,7 +504,7 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
         results = [key for key in self.storage.keys() if re.search(match_pattern, key)]
         return results
 
-    def delete(self, *names: list[str]) -> int:
+    def delete(self, *names: list[str], **kwargs) -> int:
         return sum(1 for name in names if self.storage.pop(name, None))
 
 
@@ -536,7 +536,10 @@ class KeepVariableRedisServer(AbstractKeepVariableServer):
         """Wrap Redis Lock object. Inspect wrapped object to investigate it's signature."""
         return self.redis.lock(*args, **kwargs)
 
-    def set(self, key: str, value: str, additional_params: Optional[dict] = None):
+    def set(
+        self, key: str, value: str, additional_params: Optional[dict] = None, *,
+        pipeline: Optional[RedisPipeline]
+    ):
         if additional_params is None:
             additional_params = {}
 
@@ -555,9 +558,10 @@ class KeepVariableRedisServer(AbstractKeepVariableServer):
             decoded_value = self.redis.json().get(key)
         return decoded_value
 
-    def json_mset(self, name: str, params: dict[str, Any], transaction=True) -> None:
-        """
-        Set multiple keys in Redis JSON document. This method uses RedisJSON.
+    def json_mset(
+        self, name: str, params: dict[str, Any], *, pipeline: Optional[RedisPipeline] = None
+    ) -> Optional[RedisPipeline]:
+        """Set multiple keys in Redis JSON document. This method uses RedisJSON.
 
         :param name: Key of the Redis variable
         :type name: str
@@ -565,13 +569,20 @@ class KeepVariableRedisServer(AbstractKeepVariableServer):
         Keys are Redis Path strings, allowing access to specific elements withing JSON document
         More info: https://redis.io/docs/stack/json/path/
         :type params: dict
-        :param transaction: True if all operations should be done in a single transaction, defaults to True
-        :type transaction: bool, optional
+        :param pipeline: pipeline in which operations can be executed in, defaults to None
+        :type pipeline: Optional[RedisPipeline], optional
+        :return: return pipeline if passed, otherwise only execute json set operation
+        :rtype: Optional[RedisPipeline]
 
         e.g.
         params = {"$.is_saved"=true, "$.status"=SomeEnum.COMPLETED.value}
         """
-        with self.redis.pipeline(transaction=transaction) as pipe:
+        if pipeline:
+            for json_xpath, value in params.items():
+                pipeline.json().set(name, json_xpath, value)
+            return pipeline
+
+        with self.redis.pipeline() as pipe:
             for json_xpath, value in params.items():
                 pipe.json().set(name, json_xpath, value)
             pipe.execute()
@@ -581,8 +592,7 @@ class KeepVariableRedisServer(AbstractKeepVariableServer):
         tag_params: Optional[dict[str, tuple]] = None, index_name: str,
         field_to_sort_by: Optional[str] = None, asc=True, **kwargs
     ) -> dict:
-        """
-        Simplified wrapper to RedisSearch. Allows to search and sort by a value of Redis TAG/TEXT fields.
+        """Simplified wrapper to RedisSearch. Allows to search and sort by a value of Redis TAG/TEXT fields.
         Simplistic on purpose, to avoid bloat. Additional functionality should be added in case of need.
 
         :param text_params: key name to a tuple of values mapping, e.g. {'status': ('pipel', ...), ...}
@@ -625,15 +635,21 @@ class KeepVariableRedisServer(AbstractKeepVariableServer):
         job_docs: list = self.redis.ft(index_name).search(query_object).docs
         return {job_doc.id: self.decode_loaded_value(job_doc.json) for job_doc in job_docs}
 
-    def arrlen(self, name: str, path: str) -> Optional[int]:
+    def arrlen(self, name: str, path: str, *,
+               pipeline: Optional[RedisPipeline] = None) -> Union[int, None, RedisPipeline]:
+        if pipeline:
+            return pipeline.json().arrlen(name, path)
         return self.redis.json().arrlen(name, path).pop()
 
-    def arrappend(self, name: str, path: str, objects: Sequence) -> Optional[int]:
+    def arrappend(
+        self, name: str, path: str, objects: Iterable, *, pipeline: Optional[RedisPipeline] = None
+    ) -> Union[int, None, RedisPipeline]:
+        if pipeline:
+            return pipeline.json().arrappend(name, path, *objects)
         return self.redis.json().arrappend(name, path, *objects).pop()
 
     def scan(self, match_string: str, count: int = 50, type_: Optional[str] = None) -> list[str]:
-        """
-        Find saved keys, matching their name with a given glob-style pattern.
+        """Find saved keys, matching their name with a given glob-style pattern.
         This command does not block the server, as it is based on a cursor-style iterator.
 
         https://redis.io/commands/scan/
@@ -649,5 +665,15 @@ class KeepVariableRedisServer(AbstractKeepVariableServer):
         """
         return list(self.redis.scan_iter(match_string, count, type_))
 
-    def delete(self, *names: list[str]) -> int:
+    def delete(self, *names: list[str],
+               pipeline: Optional[RedisPipeline] = None) -> Union[int, RedisPipeline]:
+        """Delete specified keys. If pipeline is passed, delete is executed in a transaction.
+
+        :param pipeline: if provided, delete operation will be added to the existing pipeline
+        :type pipeline: Optional[RedisPipeline]
+        :return: number of deleted keys or a pipeline in case it was passed to a function
+        :rtype: int | RedisPipeline
+        """
+        if pipeline:
+            return pipeline.delete(*names)
         return self.redis.delete(*names)
