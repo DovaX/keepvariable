@@ -475,7 +475,7 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
         :param name: key under which a JSON document is stored
         :type name: str
         :param path: Redis JSON path string e.g. "job.nodes[2].status"
-        :type path: strdelete
+        :type path: str
         :return: tuple[referenced object, key, index]
         :rtype: tuple[dict, str, int]
 
@@ -487,7 +487,7 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
 
         tuple[referenced_object, key, index] --> referenced_object[key][index] = ...
         """
-        # Parsing Iterable from 'path' string
+        # Parsing sequence from 'path' string
         # name = "cache"
         # path = "$.A.B[2].C.D[5]"
         # elements = ["$", "A", "B[2]", "C", "D[5]"]
@@ -576,8 +576,11 @@ class KeepVariableRedisServer(AbstractKeepVariableServer):
             additional_params = {}
 
         value = self.parse_saved_value(value, additional_params)
-        result = self.redis.set(key, value)
-        return result
+
+        if pipeline:
+            return pipeline.set(key, value)
+        else:
+            return self.redis.set(key, value)
 
     def get(self, key: str) -> Optional[Any]:
         try:
