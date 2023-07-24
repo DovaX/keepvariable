@@ -150,16 +150,19 @@ class RefList:
 class AbstractKeepVariableServer(ABC):
     def _json_serialize_dataframe(self, df: pd.DataFrame) -> str:
         """Takes a pandas DataFrame and serialized it to a json-like string.
-        The function uses pd.DataFrame().to_json() approach so as to handle various variable types with ease (pd.NA, pd.NaT, datetime etc.)
+        The function uses pd.DataFrame().to_json() approach so as to handle various variable types with ease (pd.NA, pd.NaT, datetime etc.).
 
         Example:
+        -------
             input: df2 = pd.DataFrame([[1,datetime.datetime.now(),3],[4,5,pd.NA],[pd.NaT,8,None]])
             output: {"columns": [0, 1, 2], "data": [[1, 1685402664424, 3], [4, 5, null], [null, 8, null]], "object_type": "pd.DataFrame", "attrs": {}}'
 
         Args:
+        ----
             df (pd.DataFrame): DataFrame to be serialized
 
         Returns:
+        -------
             str: DataFrame serialized into json-like string
         """
         df_json = df.to_json(orient='split')
@@ -223,15 +226,13 @@ class AbstractKeepVariableServer(ABC):
 
     def decode_loaded_value(self,
                             value: str) -> Union[dict, pd.DataFrame, np.ndarray, datetime.datetime]:
-        """Decode value stored in redis into it's initial value.
-        For functions and classes only their code is returned --> they need to be evaluated afterwards!!!.
+        """Decode value stored in redis into it's initial value. For functions and classes only their code is returned --> they need to be evaluated afterwards!!!.
 
         :param value: Variable value from redis
         :type value: Any
         :return: Parsed variable value
         :rtype: Any
         """
-
         try:
             value = json.loads(value)
             if "object_type" in value and isinstance(value, dict):
@@ -319,8 +320,7 @@ class AbstractKeepVariableServer(ABC):
 
     @abstractmethod
     def scan(self, match_string: str, count: int = 50, type_: Optional[str] = None) -> list[str]:
-        """Find saved keys, matching their name with a given glob-style pattern.
-        This command does not block the server, as it is based on a cursor-style iterator.
+        """Find saved keys, matching their name with a given glob-style pattern. This command does not block the server, as it is based on a cursor-style iterator.
 
         :param match_string: string pattern to match keys against, e.g. 'jobs:*'
         :type match_string: str
@@ -344,9 +344,7 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
         self.storage = {}
 
     def lock(self, *args, **kwargs) -> RedisLock:
-        """Create a fake lock, which does nothing but allows KeepVariableDummyRedisServer
-        to conform to the interface.
-        """
+        """Create a fake lock, which does nothing but allows KeepVariableDummyRedisServer to conform to the interface."""
         class DummyLock:
             def acquire(self):
                 return True
@@ -530,8 +528,7 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
         return nested_object, element_list[-1], index_list[-1]
 
     def scan(self, match_string: str, *args, **kwargs) -> list[str]:
-        """Find saved keys, matching their name with a given glob-style pattern.
-        This command does not block the server, as it is based on a cursor-style iterator.
+        """Find saved keys, matching their name with a given glob-style pattern. This command does not block the server, as it is based on a cursor-style iterator.
 
         :param match_string: string pattern to match keys against, e.g. 'jobs:*'
         :type match_string: str
@@ -641,8 +638,8 @@ class KeepVariableRedisServer(AbstractKeepVariableServer):
         field_to_sort_by: Optional[str] = None, asc=True, **kwargs
     ) -> dict:
         """Simplified wrapper to RedisSearch. Allows to search and sort by a value of Redis TAG/TEXT fields.
-        Simplistic on purpose, to avoid bloat. Additional functionality should be added in case of need.
 
+        Simplistic on purpose, to avoid bloat. Additional functionality should be added in case of need.
         :param text_params: key name to a tuple of values mapping, e.g. {'status': ('pipel', ...), ...}
         :type text_params: dict[str, tuple]
         :param tag_params: key name to a tuple of values mapping, e.g. {'status': ('QUEUED', ...), ...}
@@ -697,8 +694,7 @@ class KeepVariableRedisServer(AbstractKeepVariableServer):
         return self.redis.json().arrappend(name, path, *objects).pop()
 
     def scan(self, match_string: str, count: int = 50, type_: Optional[str] = None) -> list[str]:
-        """Find saved keys, matching their name with a given glob-style pattern.
-        This command does not block the server, as it is based on a cursor-style iterator.
+        """Find saved keys, matching their name with a given glob-style pattern.This command does not block the server, as it is based on a cursor-style iterator.
 
         https://redis.io/commands/scan/
 
