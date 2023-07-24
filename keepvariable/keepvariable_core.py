@@ -258,6 +258,10 @@ class AbstractKeepVariableServer(ABC):
         pass
 
     @abstractmethod
+    def pipeline(self, *, transaction: bool = True) -> RedisPipeline:
+        pass
+
+    @abstractmethod
     def set(
         self, key: str, value, additional_params: Optional[dict] = None, *,
         pipeline: Optional[RedisPipeline] = None
@@ -351,6 +355,9 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
                 pass
 
         return DummyLock()
+
+    def pipeline(self, *args, **kwargs) -> RedisPipeline:
+        raise NotImplementedError("Pipelining operations is not available for DummyRedisServer")
 
     def set(self, key: str, value: Any, additional_params: Optional[dict] = None,
             **kwargs) -> dict[str, str]:
@@ -568,9 +575,13 @@ class KeepVariableRedisServer(AbstractKeepVariableServer):
         """Wrap Redis Lock object. Inspect wrapped object to investigate it's signature."""
         return self.redis.lock(*args, **kwargs)
 
+    def pipeline(self, *, transaction: bool = True) -> RedisPipeline:
+        """Create a Redis Pipeline object, which can be used to execute multiple commands atomically."""
+        return self.redis.pipeline(transaction=transaction)
+
     def set(
         self, key: str, value: str, additional_params: Optional[dict] = None, *,
-        pipeline: Optional[RedisPipeline]
+        pipeline: Optional[RedisPipeline] = None
     ):
         if additional_params is None:
             additional_params = {}
