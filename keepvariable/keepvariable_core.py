@@ -332,7 +332,7 @@ class AbstractKeepVariableServer(ABC):
         pass
 
     @abstractmethod
-    def delete(self, *names: list[str],
+    def delete(self, *names: str,
                pipeline: Optional[RedisPipeline] = None) -> Union[int, RedisPipeline]:
         """Delete multiple keys - explanations are in abstract subclasses docstrings."""
         pass
@@ -540,7 +540,7 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
         results = [key for key in self.storage.keys() if re.search(match_pattern, key)]
         return results
 
-    def delete(self, *names: list[str], **kwargs) -> int:
+    def delete(self, *names: str, **kwargs) -> int:
         return sum(1 for name in names if self.storage.pop(name, None))
 
 
@@ -709,7 +709,7 @@ class KeepVariableRedisServer(AbstractKeepVariableServer):
         """
         return list(self.redis.scan_iter(match_string, count, type_))
 
-    def delete(self, *names: list[str],
+    def delete(self, *names: str,
                pipeline: Optional[RedisPipeline] = None) -> Union[int, RedisPipeline]:
         """Delete specified keys. If pipeline is passed, delete is executed in a transaction.
 
