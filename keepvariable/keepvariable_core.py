@@ -237,7 +237,7 @@ class AbstractKeepVariableServer(ABC):
 
         try:
             value = json.loads(value)
-            if "object_type" in value and isinstance(value, dict):
+            if isinstance(value, dict) and "object_type" in value:
                 if value["object_type"] == "NoneType":
                     return None
                 elif value["object_type"] == "pd.DataFrame":
