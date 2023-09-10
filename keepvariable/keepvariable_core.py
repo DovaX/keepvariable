@@ -235,7 +235,7 @@ class AbstractKeepVariableServer(ABC):
         """
         try:
             value = json.loads(value)
-            if "object_type" in value and isinstance(value, dict):
+            if isinstance(value, dict) and "object_type" in value:
                 if value["object_type"] == "NoneType":
                     return None
                 elif value["object_type"] == "pd.DataFrame":
@@ -403,6 +403,7 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
         name: str,
         field_to_sort_by: Optional[str] = None,
         asc=True,
+        paginate: Optional[tuple[int, int]] = None,
         **kwargs,
     ) -> dict[str, dict]:
         """Simplified alternative to RedisSearch. Allows to search and sort by values of specified fields.
@@ -411,8 +412,12 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
         :type text_params: dict[str, tuple]
         :param tag_params: key name to a tuple of values mapping, e.g. {'status': ('QUEUED', ...), ...}
         :type tag_params: dict[str, tuple]
-        :param sort_by_name: attribute name by which results should be sorted
-        :type sort_by_name: str
+        :param field_to_sort_by: attribute name by which results should be sorted
+        :type field_to_sort_by: str
+        :param asc: True if sort in ascending order, defaults to True
+        :type asc: bool, optional
+        :param paginate: pagination params in for of a tuple - (offset, limit), defaults to None
+        :type paginate: Optional[tuple[int, int]], optional
         :return: [('jobs:43', job_dict), ...]
         :rtype: list[tuple]
         """
@@ -443,6 +448,10 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
             if not asc:
                 found_jobs_list.reverse()
             found_jobs = dict(found_jobs_list)
+        if paginate:
+            start = paginate[0]
+            end = paginate[0] + paginate[1]
+            found_jobs = found_jobs[start:end]
 
         return found_jobs
 
@@ -635,7 +644,7 @@ class KeepVariableRedisServer(AbstractKeepVariableServer):
     def query(
         self, *, text_params: Optional[dict[str, tuple]] = None,
         tag_params: Optional[dict[str, tuple]] = None, index_name: str,
-        field_to_sort_by: Optional[str] = None, asc=True, **kwargs
+        field_to_sort_by: Optional[str] = None, asc=True, paginate: Optional[tuple[int, int]] = None, **kwargs
     ) -> dict:
         """Simplified wrapper to RedisSearch. Allows to search and sort by a value of Redis TAG/TEXT fields.
 
@@ -650,6 +659,8 @@ class KeepVariableRedisServer(AbstractKeepVariableServer):
         :type field_to_sort_by: Optional[str], optional
         :param asc: True if sort in ascending order, defaults to True
         :type asc: bool, optional
+        :param paginate: pagination params in for of a tuple - (offset, limit), defaults to None
+        :type paginate: Optional[tuple[int, int]], optional
         :return: {'jobs:43': job_dict, ...}
         :rtype: dict[str, Any]
         """
@@ -668,14 +679,17 @@ class KeepVariableRedisServer(AbstractKeepVariableServer):
                 final_query += tag_query_template.format(field=field, value=value_str)
 
         # If no query was specified, return all records from the index
-        if not final_query:
+        if final_query == "":
             final_query = "*"
 
         # Query example: "@type:PIPEL @status:{QUEUED|COMPLETED}"
         # Explanation: find all jobs with type field containing 'PIPEL' and status being either 'QUEUED' or 'COMPLETED'
         query_object = Query(final_query)
+
         if field_to_sort_by:
             query_object.sort_by(field_to_sort_by, asc=asc)
+        if paginate:
+            query_object.paging(*paginate)
 
         job_docs: list = self.redis.ft(index_name).search(query_object).docs
         return {job_doc.id: self.decode_loaded_value(job_doc.json) for job_doc in job_docs}
