@@ -251,7 +251,7 @@ class AbstractKeepVariableServer(ABC):
                 elif (value["object_type"] == "function" or value["object_type"] == "class"):
                     return value["code"]
             return value
-        except json.JSONDecodeError:  # if type is str, it fails to decode
+        except (json.JSONDecodeError, TypeError):
             return value
 
     @abstractmethod
