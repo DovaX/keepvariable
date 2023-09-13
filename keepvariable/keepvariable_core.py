@@ -189,7 +189,7 @@ class AbstractKeepVariableServer(ABC):
 
         if isinstance(value, type(None)):
             value = {"object_type": "NoneType"}  # Redis does not natively support None values
-        elif isinstance(value, list) or isinstance(value, bool) or isinstance(value, dict):
+        elif isinstance(value, list) or isinstance(value, bool) or isinstance(value, dict) or isinstance(value, int) or isinstance(value, float):
             value = json.dumps(value)
         elif isinstance(value, pd.DataFrame):
             value = self._json_serialize_dataframe(value)

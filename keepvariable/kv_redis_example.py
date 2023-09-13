@@ -3,7 +3,9 @@ import pandas as pd
 import datetime
 import inspect
 
-# kv_redis=kv.KeepVariableRedisServer(host="app.forloop.ai",port=6379,password="redisforloop2023#-")
+from credentials import REDIS_PASSWORD
+
+#kv_redis=kv.KeepVariableRedisServer(host="app.forloop.ai",port=6379,password=REDIS_PASSWORD)
 kv_redis=kv.KeepVariableDummyRedisServer()
 
     
@@ -13,6 +15,19 @@ result=kv_redis.get("test")
 
 print(result) 
 #abc123
+
+
+kv_redis.set("integer_test",1)
+result=kv_redis.get("integer_test")
+print(result) 
+#1
+
+
+kv_redis.set("float_test",1.5)
+result=kv_redis.get("float_test")
+print(result) 
+#1.5
+
 
 
 
