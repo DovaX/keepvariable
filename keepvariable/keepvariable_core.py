@@ -400,10 +400,12 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
         *,
         text_params: Optional[dict[str, tuple]] = None,
         tag_params: Optional[dict[str, tuple]] = None,
-        name: str,
+        entity_key: str,
+        index_name: str="index",
         field_to_sort_by: Optional[str] = None,
         asc=True,
         paginate: Optional[tuple[int, int]] = None,
+        ignored_keywords: list = ["index","pk","lock"],
         **kwargs,
     ) -> dict[str, dict]:
         """Simplified alternative to RedisSearch. Allows to search and sort by values of specified fields.
@@ -421,39 +423,48 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
         :return: [('jobs:43', job_dict), ...]
         :rtype: list[tuple]
         """
-        found_jobs: dict[str, dict] = {
-            job_name: value for job_name, value in self.storage.items() if name in job_name
-        }  # {'jobs:43': job_dict, ...}
+        def occurence_of_ignored_keywords(record_name, ignored_keywords):
+            """checks validity of filtered records - omits ignored_keywords pk, lock, ..."""
+            
+            are_ignored_keywords_occuring=any([x in record_name for x in ignored_keywords])
+            return(are_ignored_keywords_occuring)
+            
+            
+        
+        found_records: dict[str, dict] = {
+            record_name: value for record_name, value in self.storage.items() if entity_key in record_name and not occurence_of_ignored_keywords(record_name,ignored_keywords)
+        }  # {'records:43': record_dict, ...}
 
         # TAG search
         if tag_params is not None:
             for field, values in tag_params.items():
-                found_jobs = {
-                    job_id: job for job_id, job in found_jobs.items()
-                    if job.get(field) and job.get(field) in values
+                found_records = {
+                    record_id: record for record_id, record in found_records.items()
+                    if record.get(field) and record.get(field) in values
                 }
 
         # TEXT search
         if text_params is not None:
             for field, values in text_params.items():
                 for value in values:
-                    # E.g. value = "QUEU", job.get(field) = "QUEUED"
-                    found_jobs = {
-                        job_id: job for job_id, job in found_jobs.items()
-                        if job.get(field) and value in job.get(field)
+                    # E.g. value = "QUEU", record.get(field) = "QUEUED"
+                    found_records = {
+                        record_id: record for record_id, record in found_records.items()
+                        if record.get(field) and value in record.get(field)
                     }
 
         if field_to_sort_by:
-            found_jobs_list = sorted(found_jobs.items(), key=lambda x: x[1][field_to_sort_by])
+            found_records_list = sorted(found_records.items(), key=lambda x: x[1][field_to_sort_by])
             if not asc:
-                found_jobs_list.reverse()
-            found_jobs = dict(found_jobs_list)
+                found_records_list.reverse()
+            found_records = dict(found_records_list)
         if paginate:
             start = paginate[0]
             end = paginate[0] + paginate[1]
-            found_jobs = found_jobs[start:end]
+            print("FOUND_RECORDS",found_records)
+            found_records = found_records[start:end]
 
-        return found_jobs
+        return found_records
 
     def arrlen(self, name: str, path: str, **kwargs) -> Optional[int]:
         try:
@@ -643,7 +654,7 @@ class KeepVariableRedisServer(AbstractKeepVariableServer):
 
     def query(
         self, *, text_params: Optional[dict[str, tuple]] = None,
-        tag_params: Optional[dict[str, tuple]] = None, index_name: str,
+        tag_params: Optional[dict[str, tuple]] = None, entity_key: str, index_name: str="index",
         field_to_sort_by: Optional[str] = None, asc=True, paginate: Optional[tuple[int, int]] = None, **kwargs
     ) -> dict:
         """Simplified wrapper to RedisSearch. Allows to search and sort by a value of Redis TAG/TEXT fields.
@@ -653,6 +664,8 @@ class KeepVariableRedisServer(AbstractKeepVariableServer):
         :type text_params: dict[str, tuple]
         :param tag_params: key name to a tuple of values mapping, e.g. {'status': ('QUEUED', ...), ...}
         :type tag_params: dict[str, tuple]
+        :param entity_key: name of the Redis key that is preceding the index name - e.g. "jobs"
+        :type entity_key: str
         :param index_name: name of the Redis index used for querying
         :type index_name: str
         :param field_to_sort_by: attribute name by which results should be sorted, defaults to None
@@ -691,7 +704,9 @@ class KeepVariableRedisServer(AbstractKeepVariableServer):
         if paginate:
             query_object.paging(*paginate)
 
-        job_docs: list = self.redis.ft(index_name).search(query_object).docs
+        assert len(entity_key)>0 #entity needs to be specified
+        index_key=entity_key+":"+index_name
+        job_docs: list = self.redis.ft(index_key).search(query_object).docs
         return {job_doc.id: self.decode_loaded_value(job_doc.json) for job_doc in job_docs}
 
     def arrlen(self, name: str, path: str, *,
