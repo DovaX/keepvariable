@@ -34,7 +34,7 @@ def access_element_by_path(json_obj: Union[dict, list], json_path: str) -> tuple
     try:
         for key in path_stack[:-1]:
             current_obj = current_obj[key]
-        final_key = path_stack[-1] if path_stack else None
+        final_key = path_stack[-1]
     except (AttributeError, IndexError) as e:
         raise IncorrectPathError(f"Path '{json_path}' could not be accessed") from e
 
