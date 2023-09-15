@@ -389,6 +389,7 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
         params = {"$.is_saved"=true, "$.status"=SomeEnum.COMPLETED.value}
         """
         for json_xpath, value in params.items():
+            value = self.parse_saved_value(value) # Serialize objects even tho they are stored in in-app memory
             element, last_element, last_index = self._extract_object_from_path(name, json_xpath)
             if last_index:
                 element[last_element][last_index] = value
@@ -430,41 +431,38 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
             return(are_ignored_keywords_occuring)
             
             
-        
-        found_records: dict[str, dict] = {
-            record_name: value for record_name, value in self.storage.items() if entity_key in record_name and not occurence_of_ignored_keywords(record_name,ignored_keywords)
-        }  # {'records:43': record_dict, ...}
+        found_records: list[tuple[str, dict]] = [
+            (record_name, self.parse_saved_value(value)) for record_name, value in self.storage.items() if entity_key in record_name and not occurence_of_ignored_keywords(record_name,ignored_keywords)
+          ]  # e.g. [('jobs:43', job_dict), ...]
 
         # TAG search
         if tag_params is not None:
             for field, values in tag_params.items():
-                found_records = {
-                    record_id: record for record_id, record in found_records.items()
-                    if record.get(field) and record.get(field) in values
-                }
+                found_records = [
+                    (job_id, job) for job_id, job in found_records
+                    if job.get(field) and job.get(field) in values
+                ]
 
         # TEXT search
         if text_params is not None:
             for field, values in text_params.items():
                 for value in values:
-                    # E.g. value = "QUEU", record.get(field) = "QUEUED"
+                    # E.g. value = "QUEU", job.get(field) = "QUEUED"
                     found_records = {
-                        record_id: record for record_id, record in found_records.items()
-                        if record.get(field) and value in record.get(field)
+                        (job_id, job) for job_id, job in found_records
+                        if job.get(field) and value in job.get(field)
                     }
 
         if field_to_sort_by:
-            found_records_list = sorted(found_records.items(), key=lambda x: x[1][field_to_sort_by])
+            found_records = sorted(found_records, key=lambda x: x[1][field_to_sort_by])
             if not asc:
-                found_records_list.reverse()
-            found_records = dict(found_records_list)
+                found_records.reverse()
         if paginate:
             start = paginate[0]
             end = paginate[0] + paginate[1]
-            print("FOUND_RECORDS",found_records)
             found_records = found_records[start:end]
 
-        return found_records
+        return dict(found_records)
 
     def arrlen(self, name: str, path: str, **kwargs) -> Optional[int]:
         try:
