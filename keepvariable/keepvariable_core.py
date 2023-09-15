@@ -461,7 +461,7 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
         if paginate:
             start = paginate[0]
             end = paginate[0] + paginate[1]
-            print("FOUND_RECORDS",found_records)
+            #print("FOUND_RECORDS",found_records)
             found_records = found_records[start:end]
 
         return found_records
