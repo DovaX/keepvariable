@@ -14,6 +14,8 @@ from redis.client import Pipeline as RedisPipeline
 from redis.commands.search.query import Query
 from redis.lock import Lock as RedisLock
 
+from keepvariable.utils import access_element_by_path, parse_path_to_stack
+
 
 def get_definition(jump_frames, *args, **kwargs):
     """Return the definition of a function or a class from inside."""
@@ -388,13 +390,25 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
         e.g.
         params = {"$.is_saved"=true, "$.status"=SomeEnum.COMPLETED.value}
         """
-        for json_xpath, value in params.items():
-            value = self.parse_saved_value(value) # Serialize objects even tho they are stored in in-app memory
-            element, last_element, last_index = self._extract_object_from_path(name, json_xpath)
-            if last_index:
-                element[last_element][last_index] = value
+        json_obj = self.decode_loaded_value(self.storage[name]) if name in self.storage else {}
+
+        for json_path, value in params.items():
+            element, final_key = access_element_by_path(json_obj, json_path)
+            if element is None:
+                json_obj = value
+            elif final_key is None:
+                element = value
             else:
-                element[last_element] = value
+                element[final_key] = value
+
+        self.set(name, json_obj)
+
+        # for json_xpath, value in params.items():
+        #     element, last_element, last_index = self._extract_object_from_path(name, json_xpath)
+        #     if last_index:
+        #         element[last_element][last_index] = value
+        #     else:
+        #         element[last_element] = value
 
     def query(
         self,
@@ -432,7 +446,7 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
             
             
         found_records: list[tuple[str, dict]] = [
-            (record_name, self.parse_saved_value(value)) for record_name, value in self.storage.items() if entity_key in record_name and not occurence_of_ignored_keywords(record_name,ignored_keywords)
+            (record_name, self.decode_loaded_value(value)) for record_name, value in self.storage.items() if entity_key in record_name and not occurence_of_ignored_keywords(record_name,ignored_keywords)
           ]  # e.g. [('jobs:43', job_dict), ...]
 
         # TAG search
@@ -466,11 +480,15 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
 
     def arrlen(self, name: str, path: str, **kwargs) -> Optional[int]:
         try:
-            element, last_element, last_index = self._extract_object_from_path(name, path)
-            if last_index:
-                return len(element[last_element][last_index])
+            json_obj = self.decode_loaded_value(self.storage[name]) if name in self.storage else {}
+
+            element, final_key = access_element_by_path(json_obj, path)
+            if element is None:
+                return len(json_obj)
+            elif final_key is None:
+                return len(element)
             else:
-                return len(element[last_element])
+                return len(element[final_key])
         except (KeyError, IndexError) as e:
             raise AssertionError(
                 "Nested object does not exist - most probably due to incorrect path arg"
@@ -478,19 +496,25 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
 
     def arrappend(self, name: str, path: str, objects: Iterable, **kwargs) -> Optional[int]:
         try:
-            element, last_element, last_index = self._extract_object_from_path(name, path)
-            if last_index:
-                for obj in objects:
-                    element[last_element][last_index].append(obj)
-                return len(element[last_element][last_index])
+            json_obj = self.decode_loaded_value(self.storage[name]) if name in self.storage else {}
+
+            element, final_key = access_element_by_path(json_obj, path)
+            if element is None:
+                json_obj.extend(objects)
+                array_length = len(json_obj)
+            elif final_key is None:
+                element.extend(objects)
+                array_length = len(element)
             else:
-                for obj in objects:
-                    element[last_element].append(obj)
-                return len(element[last_element])
+                element[final_key].extend(objects)
+                array_length = len(element[final_key])
         except (KeyError, IndexError) as e:
             raise AssertionError(
                 "Nested object does not exist - most probably due to incorrect path arg"
             ) from e
+
+        self.set(name, json_obj)
+        return array_length
 
     def _extract_object_from_path(self, name: str, path: str) -> tuple[Any, str, Optional[int]]:
         """Recursively traverses a JSON document under 'name' to access the object defined by the 'path' argument.
