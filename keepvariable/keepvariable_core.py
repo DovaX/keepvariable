@@ -415,7 +415,7 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
         field_to_sort_by: Optional[str] = None,
         asc=True,
         paginate: Optional[tuple[int, int]] = None,
-        ignored_keywords: list = None,
+        ignored_keywords: list[str] = None,
         **kwargs,
     ) -> dict[str, dict]:
         """Simplified alternative to RedisSearch. Allows to search and sort by values of specified fields.
@@ -433,13 +433,14 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
         :return: [('jobs:43', job_dict), ...]
         :rtype: list[tuple]
         """
-        if ignored_keywords is None:
-            ignored_keywords = ["index", "pk", "lock"]
 
-        def occurence_of_ignored_keywords(record_name, ignored_keywords):
-            """Checks validity of filtered records - omits ignored_keywords pk, lock, ..."""
+        def occurence_of_ignored_keywords(record_name: str, ignored_keywords: list[str]) -> bool:
+            """Check validity of filtered records - omit ignored_keywords: pk, lock, ..."""
             are_ignored_keywords_occuring = any(x in record_name for x in ignored_keywords)
             return (are_ignored_keywords_occuring)
+
+        if ignored_keywords is None:
+            ignored_keywords = ["index", "pk", "lock"]
 
         found_records: list[tuple[str, dict]] = [
             (record_name, self.decode_loaded_value(value))
@@ -451,8 +452,8 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
         if tag_params is not None:
             for field, values in tag_params.items():
                 found_records = [
-                    (job_id, job) for job_id, job in found_records
-                    if job.get(field) and job.get(field) in values
+                    (record_id, record) for record_id, record in found_records
+                    if record.get(field) and record.get(field) in values
                 ]
 
         # TEXT search
@@ -461,8 +462,8 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
                 for value in values:
                     # E.g. value = "QUEU", job.get(field) = "QUEUED"
                     found_records = {
-                        (job_id, job) for job_id, job in found_records
-                        if job.get(field) and value in job.get(field)
+                        (record_id, record) for record_id, record in found_records
+                        if record.get(field) and value in record.get(field)
                     }
 
         if field_to_sort_by:
