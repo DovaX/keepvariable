@@ -64,7 +64,7 @@ def parse_path_to_stack(json_path: str) -> list[Union[int, str]]:
             for match in matches:
                 index = int(match)
                 stack.append(index)
-    except (AttributeError, IndexError) as e:
+    except (AttributeError, IndexError, TypeError) as e:
         raise IncorrectPathError(f"Path '{json_path}' could not be accessed") from e
 
     return stack
