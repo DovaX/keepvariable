@@ -567,7 +567,7 @@ class KeepVariableRedisServer(AbstractKeepVariableServer):
     def set(
         self, key: str, value: str, additional_params: Optional[dict] = None, *,
         pipeline: Optional[RedisPipeline] = None
-    ) ->:
+    ):
         if additional_params is None:
             additional_params = {}
 
