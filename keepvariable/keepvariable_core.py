@@ -14,6 +14,8 @@ from redis.client import Pipeline as RedisPipeline
 from redis.commands.search.query import Query
 from redis.lock import Lock as RedisLock
 
+from keepvariable.utils import access_element_by_path
+
 
 def get_definition(jump_frames, *args, **kwargs):
     """Return the definition of a function or a class from inside."""
@@ -189,7 +191,9 @@ class AbstractKeepVariableServer(ABC):
 
         if isinstance(value, type(None)):
             value = {"object_type": "NoneType"}  # Redis does not natively support None values
-        elif isinstance(value, list) or isinstance(value, bool) or isinstance(value, dict) or isinstance(value, int) or isinstance(value, float):
+        elif isinstance(value, list) or isinstance(value, bool) or isinstance(
+            value, dict
+        ) or isinstance(value, int) or isinstance(value, float):
             value = json.dumps(value)
         elif isinstance(value, pd.DataFrame):
             value = self._json_serialize_dataframe(value)
@@ -388,12 +392,18 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
         e.g.
         params = {"$.is_saved"=true, "$.status"=SomeEnum.COMPLETED.value}
         """
-        for json_xpath, value in params.items():
-            element, last_element, last_index = self._extract_object_from_path(name, json_xpath)
-            if last_index:
-                element[last_element][last_index] = value
+        json_obj = self.decode_loaded_value(self.storage[name]) if name in self.storage else {}
+
+        for json_path, value in params.items():
+            element, final_key = access_element_by_path(json_obj, json_path)
+            if element is None:
+                json_obj = value
+            elif final_key is None:
+                element = value
             else:
-                element[last_element] = value
+                element[final_key] = value
+
+        self.set(name, json_obj)
 
     def query(
         self,
@@ -401,11 +411,11 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
         text_params: Optional[dict[str, tuple]] = None,
         tag_params: Optional[dict[str, tuple]] = None,
         entity_key: str,
-        index_name: str="index",
+        index_name: str = "index",
         field_to_sort_by: Optional[str] = None,
         asc=True,
         paginate: Optional[tuple[int, int]] = None,
-        ignored_keywords: list = ["index","pk","lock"],
+        ignored_keywords: list[str] = None,
         **kwargs,
     ) -> dict[str, dict]:
         """Simplified alternative to RedisSearch. Allows to search and sort by values of specified fields.
@@ -423,56 +433,61 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
         :return: [('jobs:43', job_dict), ...]
         :rtype: list[tuple]
         """
-        def occurence_of_ignored_keywords(record_name, ignored_keywords):
-            """checks validity of filtered records - omits ignored_keywords pk, lock, ..."""
-            
-            are_ignored_keywords_occuring=any([x in record_name for x in ignored_keywords])
-            return(are_ignored_keywords_occuring)
-            
-            
-        
-        found_records: dict[str, dict] = {
-            record_name: value for record_name, value in self.storage.items() if entity_key in record_name and not occurence_of_ignored_keywords(record_name,ignored_keywords)
-        }  # {'records:43': record_dict, ...}
+
+        def occurence_of_ignored_keywords(record_name: str, ignored_keywords: list[str]) -> bool:
+            """Check validity of filtered records - omit ignored_keywords: pk, lock, ..."""
+            are_ignored_keywords_occuring = any(x in record_name for x in ignored_keywords)
+            return (are_ignored_keywords_occuring)
+
+        if ignored_keywords is None:
+            ignored_keywords = ["index", "pk", "lock"]
+
+        found_records: list[tuple[str, dict]] = [
+            (record_name, self.decode_loaded_value(value))
+            for record_name, value in self.storage.items() if entity_key in record_name and
+            not occurence_of_ignored_keywords(record_name, ignored_keywords)
+        ]  # e.g. [('jobs:43', job_dict), ...]
 
         # TAG search
         if tag_params is not None:
             for field, values in tag_params.items():
-                found_records = {
-                    record_id: record for record_id, record in found_records.items()
+                found_records = [
+                    (record_id, record) for record_id, record in found_records
                     if record.get(field) and record.get(field) in values
-                }
+                ]
 
         # TEXT search
         if text_params is not None:
             for field, values in text_params.items():
                 for value in values:
-                    # E.g. value = "QUEU", record.get(field) = "QUEUED"
+                    # E.g. value = "QUEU", job.get(field) = "QUEUED"
                     found_records = {
-                        record_id: record for record_id, record in found_records.items()
+                        (record_id, record) for record_id, record in found_records
                         if record.get(field) and value in record.get(field)
                     }
 
         if field_to_sort_by:
-            found_records_list = sorted(found_records.items(), key=lambda x: x[1][field_to_sort_by])
+            found_records = sorted(found_records, key=lambda x: x[1][field_to_sort_by])
             if not asc:
-                found_records_list.reverse()
-            found_records = dict(found_records_list)
+                found_records.reverse()
         if paginate:
             start = paginate[0]
             end = paginate[0] + paginate[1]
-            #print("FOUND_RECORDS",found_records)
             found_records = found_records[start:end]
 
-        return found_records
+        return dict(found_records)
 
     def arrlen(self, name: str, path: str, **kwargs) -> Optional[int]:
         try:
-            element, last_element, last_index = self._extract_object_from_path(name, path)
-            if last_index:
-                return len(element[last_element][last_index])
+            json_obj = self.decode_loaded_value(self.storage[name]) if name in self.storage else {}
+
+            element, final_key = access_element_by_path(json_obj, path)
+            if element is None:
+                return len(json_obj)
+            elif final_key is None:
+                return len(element)
             else:
-                return len(element[last_element])
+                return len(element[final_key])
         except (KeyError, IndexError) as e:
             raise AssertionError(
                 "Nested object does not exist - most probably due to incorrect path arg"
@@ -480,72 +495,25 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
 
     def arrappend(self, name: str, path: str, objects: Iterable, **kwargs) -> Optional[int]:
         try:
-            element, last_element, last_index = self._extract_object_from_path(name, path)
-            if last_index:
-                for obj in objects:
-                    element[last_element][last_index].append(obj)
-                return len(element[last_element][last_index])
+            json_obj = self.decode_loaded_value(self.storage[name]) if name in self.storage else {}
+
+            element, final_key = access_element_by_path(json_obj, path)
+            if element is None:
+                json_obj.extend(objects)
+                array_length = len(json_obj)
+            elif final_key is None:
+                element.extend(objects)
+                array_length = len(element)
             else:
-                for obj in objects:
-                    element[last_element].append(obj)
-                return len(element[last_element])
+                element[final_key].extend(objects)
+                array_length = len(element[final_key])
         except (KeyError, IndexError) as e:
             raise AssertionError(
                 "Nested object does not exist - most probably due to incorrect path arg"
             ) from e
 
-    def _extract_object_from_path(self, name: str, path: str) -> tuple[Any, str, Optional[int]]:
-        """Recursively traverses a JSON document under 'name' to access the object defined by the 'path' argument.
-
-        :param name: key under which a JSON document is stored
-        :type name: str
-        :param path: Redis JSON path string e.g. "job.nodes[2].status"
-        :type path: str
-        :return: tuple[referenced object, key, index]
-        :rtype: tuple[dict, str, int]
-
-        As Python does not have pointers, we have to trick it by passing a reference.
-        We're returning a reference to the object 1 level above the final one dictated by the 'path' argument
-        Additionally, we are returning the key to the last value we want to access
-        And the index if that value is actually a list, so we can access that list
-        We can use these return values to access object described by 'path' in the original function
-
-        tuple[referenced_object, key, index] --> referenced_object[key][index] = ...
-        """
-        # Parsing sequence from 'path' string
-        # name = "cache"
-        # path = "$.A.B[2].C.D[5]"
-        # elements = ["$", "A", "B[2]", "C", "D[5]"]
-        # element_list = ["cache", "A", "B", "C", "D"]
-        # index_list = [None, None, 2, None, 5]
-        # Then iterate over pairs of both lists and recurrently dive into nested objects
-
-        # Parsing logic
-        elements = path.split(".")
-        pattern = r"\[(\d+)\]"  # Find any "[*]" group where * is one or more digits
-        element_list: list[str] = []
-        index_list: list[Optional[int]] = []
-        for element in elements:
-            if match := re.search(pattern, element):
-                group = match.group()
-                index_list.append(int(group[1:-1]))  # transform "[2]" -> 2
-                element_list.append(element.split("[")[0])  # transform "B[2]" -> "B"
-            else:
-                index_list.append(None)
-                element_list.append(element)
-
-        root = element_list.index("$")
-        element_list[root] = name
-
-        # Traversing logic
-        nested_object = self.storage
-        for element, index in zip(element_list[:-1], index_list[:-1]):
-            if index is not None:
-                nested_object = nested_object[element][index]
-            else:
-                nested_object = nested_object[element]
-
-        return nested_object, element_list[-1], index_list[-1]
+        self.set(name, json_obj)
+        return array_length
 
     def scan(self, match_string: str, *args, **kwargs) -> list[str]:
         """Find saved keys, matching their name with a given glob-style pattern. This command does not block the server, as it is based on a cursor-style iterator.
@@ -566,7 +534,8 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
 
 class KeepVariableRedisServer(AbstractKeepVariableServer):
     def __init__(
-        self, host="localhost", port=6379, db=0, username='default', password: Optional[str] = None
+        self, host: str = "localhost", port: int = 6379, db: int = 0, username: str = 'default',
+        password: Optional[str] = None
     ):
         self.host: str = host
         self.port: int = port
@@ -654,8 +623,9 @@ class KeepVariableRedisServer(AbstractKeepVariableServer):
 
     def query(
         self, *, text_params: Optional[dict[str, tuple]] = None,
-        tag_params: Optional[dict[str, tuple]] = None, entity_key: str, index_name: str="index",
-        field_to_sort_by: Optional[str] = None, asc=True, paginate: Optional[tuple[int, int]] = None, **kwargs
+        tag_params: Optional[dict[str, tuple]] = None, entity_key: str, index_name: str = "index",
+        field_to_sort_by: Optional[str] = None, asc=True,
+        paginate: Optional[tuple[int, int]] = None, **kwargs
     ) -> dict:
         """Simplified wrapper to RedisSearch. Allows to search and sort by a value of Redis TAG/TEXT fields.
 
@@ -704,8 +674,8 @@ class KeepVariableRedisServer(AbstractKeepVariableServer):
         if paginate:
             query_object.paging(*paginate)
 
-        assert len(entity_key)>0 #entity needs to be specified
-        index_key=entity_key+":"+index_name
+        assert len(entity_key) > 0  #entity needs to be specified
+        index_key = entity_key + ":" + index_name
         job_docs: list = self.redis.ft(index_key).search(query_object).docs
         return {job_doc.id: self.decode_loaded_value(job_doc.json) for job_doc in job_docs}
 
