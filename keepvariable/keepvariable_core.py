@@ -2,6 +2,7 @@ import ast
 import datetime
 import inspect
 import json
+import os
 import re
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
@@ -119,6 +120,7 @@ def load_variables(filename="vars.kpv"):
 
 class RefList:
     """This object type serves for enabling grouping lists of objects (e.g. visible/draggable) with common attribute in one list which is always up to date."""
+
     def __init__(self, elements=None, referenced_lists=None):
         if elements is None:
             elements = []
@@ -191,9 +193,10 @@ class AbstractKeepVariableServer(ABC):
 
         if isinstance(value, type(None)):
             value = {"object_type": "NoneType"}  # Redis does not natively support None values
-        elif isinstance(value, list) or isinstance(value, bool) or isinstance(
-            value, dict
-        ) or isinstance(value, int) or isinstance(value, float):
+        elif (
+            isinstance(value, list) or isinstance(value, bool) or isinstance(value, dict) or
+            isinstance(value, int) or isinstance(value, float)
+        ):
             value = json.dumps(value)
         elif isinstance(value, pd.DataFrame):
             value = self._json_serialize_dataframe(value)
@@ -345,7 +348,14 @@ class AbstractKeepVariableServer(ABC):
 class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
     def __init__(self, host="localhost"):
         self.host = host
-        self.storage = {}
+
+        if os.path.isfile("kv_storage.json"):
+            with open("kv_storage.json") as file:
+                json_string = file.read()
+                json_dict = json.loads(json_string)
+                self.storage = {key: json.dumps(value) for key, value in json_dict.items()}
+        else:
+            self.storage = {}
 
     def lock(self, *args, **kwargs) -> RedisLock:
         """Create a fake lock, which does nothing but allows KeepVariableDummyRedisServer to conform to the interface."""
@@ -367,6 +377,13 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
 
         value = self.parse_saved_value(value, additional_params)
         self.storage[key] = value
+
+        with open("kv_storage.json", "w") as file:
+            final_json = "{" + ", ".join(
+                f'"{key}": {value}' for key, value in self.storage.items()
+            ) + "}"
+            file.write(final_json)
+
         return {key: value}
 
     def get(self, key: str) -> Union[dict, pd.DataFrame, np.ndarray, datetime.datetime]:
@@ -433,7 +450,6 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
         :return: [('jobs:43', job_dict), ...]
         :rtype: list[tuple]
         """
-
         def occurence_of_ignored_keywords(record_name: str, ignored_keywords: list[str]) -> bool:
             """Check validity of filtered records - omit ignored_keywords: pk, lock, ..."""
             are_ignored_keywords_occuring = any(x in record_name for x in ignored_keywords)
