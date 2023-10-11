@@ -348,14 +348,17 @@ class AbstractKeepVariableServer(ABC):
 class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
     def __init__(self, host="localhost"):
         self.host = host
-
-        if os.path.isfile("kv_storage.json"):
-            with open("kv_storage.json") as file:
-                json_string = file.read()
-                json_dict = json.loads(json_string)
-                self.storage = {key: json.dumps(value) for key, value in json_dict.items()}
-        else:
-            self.storage = {}
+        self.storage = {}
+        
+        try:
+            if os.path.isfile("kv_storage.json"):
+                with open("kv_storage.json") as file:
+                    json_string = file.read()
+                    json_dict = json.loads(json_string)
+                    self.storage = {key: json.dumps(value) for key, value in json_dict.items()}
+        except json.decoder.JSONDecodeError as e:
+            print("Keepvariable error, json loading failed - check whether json data is not corrupt: "+str(e))
+            self.storage={}
 
     def lock(self, *args, **kwargs) -> RedisLock:
         """Create a fake lock, which does nothing but allows KeepVariableDummyRedisServer to conform to the interface."""
