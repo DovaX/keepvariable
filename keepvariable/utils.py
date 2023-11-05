@@ -5,7 +5,7 @@ from typing import Optional, Union
 class IncorrectPathError(Exception): ...
 
 
-def access_element_by_path(json_obj: Union[dict, list], json_path: str) -> tuple[Optional[object], Optional[Union[str, int]]]:
+def access_element_by_path(json_obj: Union[dict, list], json_path: str) -> tuple: #[Optional[object], Optional[Union[str, int]]] #not compatible with Python 3.9
     """Traverse a JSON document under 'name' to access the object defined by the 'path' argument.
 
     :param obj: reference to the traversed object
@@ -40,7 +40,7 @@ def access_element_by_path(json_obj: Union[dict, list], json_path: str) -> tuple
 
     return current_obj, final_key  # Returning parent object and final key or index
 
-def parse_path_to_stack(json_path: str) -> list[Union[int, str]]:
+def parse_path_to_stack(json_path: str) -> list: #[Union[int, str]] #not compatible with python 3.9
     """Deconstruct path string into a stack of references allowing traversal.
 
     :param json_path: Redis JSON path string e.g. "$.job.nodes[2].status"
