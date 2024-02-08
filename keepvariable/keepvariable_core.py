@@ -217,7 +217,7 @@ class AbstractKeepVariableServer(ABC):
             value = json.dumps(final_data)
 
         elif isinstance(value, datetime.datetime):
-            data = value.strftime("%Y-%m-%d %H:%M:%S")
+            data = value.isoformat()
             final_data = {"data": data, "object_type": "datetime.datetime"}
             value = json.dumps(final_data)
         elif inspect.isfunction(value):
@@ -253,7 +253,7 @@ class AbstractKeepVariableServer(ABC):
                     return array
 
                 elif value["object_type"] == "datetime.datetime":
-                    datetime_value = datetime.datetime.strptime(value["data"], "%Y-%m-%d %H:%M:%S")
+                    datetime_value = datetime.datetime.fromisoformat(value["data"])
                     return datetime_value
                 elif (value["object_type"] == "function" or value["object_type"] == "class"):
                     return value["code"]
