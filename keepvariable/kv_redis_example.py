@@ -51,7 +51,7 @@ print(result)
 # #[[1 2 3 4]
 # # [4 5 6 7]]
 
-datetime_test = datetime.datetime(year=2023, month=4, day=15, hour=14, minute=35)
+datetime_test = datetime.datetime(year=2023, month=4, day=15, hour=14, minute=35, tzinfo=datetime.timezone.utc)
 
 print(f'Datetime original: {datetime_test}')
 
