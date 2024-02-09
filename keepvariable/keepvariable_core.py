@@ -191,8 +191,8 @@ class AbstractKeepVariableServer(ABC):
         if additional_params is None:
             additional_params = {}
 
-        if isinstance(value, type(None)):
-            value = {"object_type": "NoneType"}  # Redis does not natively support None values
+        if value is None:
+            value = json.dumps({"object_type": "NoneType"})  # Redis does not natively support None values
         elif (
             isinstance(value, list) or isinstance(value, bool) or isinstance(value, dict) or
             isinstance(value, int) or isinstance(value, float)
