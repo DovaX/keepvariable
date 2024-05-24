@@ -382,21 +382,46 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
         self.storage[key] = value
 
         with open("kv_storage.json", "w") as file:
+            
+            json_key_value_pairs=[]
+            for key, value in self.storage.items():
+                if "screenshot" in key: #Temporary hotfix - TODO: solve properly!
+                    json_key_value_pairs.append(f'"{key}": "{value}"')
+                else:
+                    json_key_value_pairs.append(f'"{key}": {value}')
             final_json = "{" + ", ".join(
-                f'"{key}": {value}' for key, value in self.storage.items()
+                json_key_value_pairs
+                #f'"{key}": {value}' for key, value in self.storage.items()
             ) + "}"
             file.write(final_json)
 
         return {key: value}
 
     def get(self, key: str) -> Union[dict, pd.DataFrame, np.ndarray, datetime.datetime]:
-        value = self.storage.get(key)
-
-        # Do not move this condition to decode_loaded_value(), it only deals with missing keys
-        if value is None:
-            return None
-
-        decoded_value = self.decode_loaded_value(value)
+        
+        encoded_value = None
+        try:
+            if os.path.isfile("kv_storage.json"):
+                with open("kv_storage.json") as file:
+                    json_string = file.read()
+                    json_dict = json.loads(json_string)
+                    stored_value = json_dict.get(key)
+                    encoded_value=json.dumps(stored_value)
+                    
+        except json.decoder.JSONDecodeError as e:
+            print("Keepvariable error in get(), json loading failed - check whether json data is not corrupt: "+str(e))
+        
+        if encoded_value is not None:
+            decoded_value = self.decode_loaded_value(encoded_value)
+        
+            
+        else:
+            value = self.storage.get(key)
+            # Do not move this condition to decode_loaded_value(), it only deals with missing keys
+            if value is None:
+                return None
+    
+            decoded_value = self.decode_loaded_value(value)
         return decoded_value
 
     def json_mset(self, name: str, params: dict, *args, **kwargs) -> None:
