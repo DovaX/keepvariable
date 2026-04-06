@@ -247,6 +247,8 @@ class AbstractKeepVariableServer(ABC):
                     return None
                 elif value["object_type"] == "pd.DataFrame":
                     df = pd.DataFrame(value["data"], columns=value["columns"])
+                    if "attrs" in value:
+                        df.attrs = value["attrs"]
                     return df
                 elif value["object_type"] == "np.ndarray":
                     array = pd.DataFrame(value["data"]).values  # to ensure 64bit values in array
