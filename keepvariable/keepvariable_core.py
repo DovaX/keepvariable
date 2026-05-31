@@ -592,7 +592,7 @@ class KeepVariableRedisServer(AbstractKeepVariableServer):
         # Redis instance maintains connection pool internally, additionally it is thread-safe.
         self.redis = redis.Redis(
             host=self.host, port=self.port, username=self.username, db=self.db,
-            password=self.password, decode_responses=True, charset="utf-8"
+            password=self.password, decode_responses=True, encoding="utf-8"
         )
 
     @property
