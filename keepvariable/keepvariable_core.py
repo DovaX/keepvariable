@@ -579,10 +579,56 @@ class KeepVariableDummyRedisServer(AbstractKeepVariableServer):
 
 
 class KeepVariableRedisServer(AbstractKeepVariableServer):
+    @staticmethod
+    def _connection_attrs_from_client(redis_client: redis.Redis) -> dict:
+        kwargs = redis_client.connection_pool.connection_kwargs
+        return {
+            "host": kwargs.get("host") or kwargs.get("path") or "localhost",
+            "port": int(kwargs.get("port") or 6379),
+            "db": int(kwargs.get("db") if kwargs.get("db") is not None else 0),
+            "username": kwargs.get("username") or "default",
+            "password": kwargs.get("password"),
+        }
+
+    @classmethod
+    def from_url(cls, url: str, **kwargs) -> "KeepVariableRedisServer":
+        """Connect using a Redis URL.
+
+        Examples:
+            redis://localhost:6379/1
+            redis://:password@host:6379/1
+            rediss://user:password@host:6380/2
+        """
+        redis_client = redis.from_url(url, decode_responses=True, **kwargs)
+        instance = cls.__new__(cls)
+        attrs = cls._connection_attrs_from_client(redis_client)
+        instance.host = attrs["host"]
+        instance.port = attrs["port"]
+        instance.db = attrs["db"]
+        instance.username = attrs["username"]
+        instance.password = attrs["password"]
+        instance.redis = redis_client
+        return instance
+
     def __init__(
-        self, host: str = "localhost", port: int = 6379, db: int = 0, username: str = 'default',
-        password: Optional[str] = None
+        self,
+        host: str = "localhost",
+        port: int = 6379,
+        db: int = 0,
+        username: str = "default",
+        password: Optional[str] = None,
+        url: Optional[str] = None,
     ):
+        if url is not None:
+            configured = self.from_url(url)
+            self.host = configured.host
+            self.port = configured.port
+            self.db = configured.db
+            self.username = configured.username
+            self.password = configured.password
+            self.redis = configured.redis
+            return
+
         self.host: str = host
         self.port: int = port
         self.db = db
@@ -591,8 +637,12 @@ class KeepVariableRedisServer(AbstractKeepVariableServer):
 
         # Redis instance maintains connection pool internally, additionally it is thread-safe.
         self.redis = redis.Redis(
-            host=self.host, port=self.port, username=self.username, db=self.db,
-            password=self.password, decode_responses=True, charset="utf-8"
+            host=self.host,
+            port=self.port,
+            username=self.username,
+            db=self.db,
+            password=self.password,
+            decode_responses=True,
         )
 
     @property
